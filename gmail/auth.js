@@ -7,6 +7,12 @@
 // one (login_hint), and a token for any other account is refused, so the client never shows one
 // mailbox while acting on another. The account is kept in local storage until Sign out; without
 // it nothing is renewed, and the sign-in panel asks.
+//
+// A silent renewal fails in two ways that must not look alike. When Google answers it with a
+// refusal (login_required and the like, or a page that needs the user), the session is gone and
+// NotSignedIn sends the user to the sign-in panel. When Google was never reached (the page could
+// not be loaded, a timeout, a profile check the server failed), it is an ordinary Error carrying
+// the browser's reason, which the client reports like any connection failure and tries again.
 
 const SCOPE = "https://mail.google.com/";
 const AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -39,7 +45,11 @@ async function flow(interactive, email) {
   const { url, state } = authUrl(interactive, email);
   let redirect;
   try { redirect = await chrome.identity.launchWebAuthFlow({ url, interactive }); }
-  catch (e) { throw new NotSignedIn(interactive ? `Google sign-in did not complete (${e.message})` : undefined); }
+  catch (e) {
+    if (interactive) throw new NotSignedIn(`Google sign-in did not complete (${e.message})`);
+    if (/interaction|approve|not signed in/i.test(e.message)) throw new NotSignedIn();
+    throw new Error(`Google's sign-in could not be reached (${e.message})`);
+  }
   const q = new URLSearchParams(new URL(redirect).hash.slice(1));
   if (q.get("state") !== state) throw new NotSignedIn("the sign-in answer did not match the request");
   if (q.get("error")) throw new NotSignedIn(interactive ? `Google answered: ${q.get("error")}` : undefined);
@@ -50,7 +60,8 @@ async function flow(interactive, email) {
 
 async function profileEmail(access) {
   const resp = await fetch(PROFILE, { headers: { Authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(30000) });
-  if (!resp.ok) throw new NotSignedIn(`Google did not confirm the account (HTTP ${resp.status})`);
+  if (resp.status === 401 || resp.status === 403) throw new NotSignedIn(`Google did not confirm the account (HTTP ${resp.status})`);
+  if (!resp.ok) throw new Error(`Google could not confirm the account (HTTP ${resp.status})`);
   return (await resp.json()).emailAddress || "";
 }
 

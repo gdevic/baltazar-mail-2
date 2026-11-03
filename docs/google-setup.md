@@ -40,7 +40,7 @@ Then build, load `dist/baltazar-mail-gmail` unpacked, read the id from the exten
 
 ## 5. Signing in
 
-Click the toolbar icon; the sign-in page has one button, **Sign in with Google**. Google asks which account, shows the unverified-app warning while the app is unverified (Advanced, Go to the app), then the permission. The token is kept in the browser's session storage for this extension, and is renewed silently; **Sign out** in Settings revokes it. The extension never opens Google's window by itself: when a silent renewal fails (the Google session ended), the sign-in page comes back and waits for the button.
+Click the toolbar icon; the sign-in page has one button, **Sign in with Google**. Google asks which account, shows the unverified-app warning while the app is unverified (Advanced, Go to the app), then the permission. The token is kept in the browser's session storage for this extension, and is renewed silently; **Sign out** in Settings revokes it. The extension never opens Google's window by itself: when Google refuses a silent renewal (the Google session ended), the sign-in page comes back and waits for the button; a renewal that could not reach Google at all is reported as a connection failure, with the browser's reason, and tried again by itself.
 
 ## 6. Publishing
 

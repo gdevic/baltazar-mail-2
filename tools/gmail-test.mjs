@@ -86,7 +86,7 @@ execFileSync(process.execPath, [path.join(ROOT, "tools", "build.js"), "gmail"], 
 // a token (silently only when the test allows it).
 const store = {}, local = {};
 const flows = [];
-let silentOk = false, tokens = 0;
+let silentOk = false, silentDown = "", silentRefusal = "", tokens = 0;
 const area = o => ({ get: async k => ({ [k]: o[k] }), set: async x => Object.assign(o, x), remove: async k => { delete o[k]; } });
 globalThis.chrome = {
   storage: { session: area(store), local: area(local) },
@@ -96,6 +96,8 @@ globalThis.chrome = {
     launchWebAuthFlow: async ({ url, interactive }) => {
       flows.push({ interactive, url });
       const u = new URL(url);
+      if (!interactive && silentDown) throw new Error(silentDown);
+      if (!interactive && silentRefusal) return `https://extid.chromiumapp.org/#error=${silentRefusal}&state=${u.searchParams.get("state")}`;
       if (!interactive && !silentOk) throw new Error("The user did not approve access.");
       return `https://extid.chromiumapp.org/#access_token=tok${++tokens}&token_type=Bearer&expires_in=3600&state=${u.searchParams.get("state")}`;
     },
@@ -411,7 +413,22 @@ const lastMod = () => modsOf().at(-1);
   mock.fail = { status: 401, times: 2 };
   const r2 = await outcome(api.folders());
   ok(r2.e instanceof api.NotSignedIn, "a 401 that renewal cannot fix means signed out: " + r2.e?.name);
+  // a renewal that never reached Google is not a lost session: the browser's reason is kept, the account too
   silentOk = true; await api.bootstrap();
+  silentDown = "Authorization page could not be loaded.";
+  mock.fail = { status: 401, times: 1 };
+  const rd = await outcome(api.folders());
+  silentDown = "";
+  ok(rd.e && !(rd.e instanceof api.NotSignedIn) && /could not be reached.*could not be loaded/.test(rd.e.message) && local.gmAccount === "me@gmail.com", "a renewal Google never answered is an ordinary error with the reason: " + JSON.stringify({ name: rd.e?.name, message: rd.e?.message, local }));
+  const rd2 = await outcome(api.folders());
+  ok(rd2.value?.folders.length > 0 && store.gmToken?.access_token, "the next call renews again and succeeds: " + (rd2.e?.message || store.gmToken?.access_token));
+  // Google's refusal of a silent renewal is a lost session
+  silentRefusal = "login_required";
+  mock.fail = { status: 401, times: 1 };
+  const rr = await outcome(api.folders());
+  silentRefusal = "";
+  ok(rr.e instanceof api.NotSignedIn && !store.gmToken?.access_token, "a renewal Google refuses means signed out: " + JSON.stringify({ name: rr.e?.name, token: store.gmToken }));
+  await api.bootstrap();
   mock.fail = { status: 429, times: 2 };
   const t0 = Date.now();
   const r3 = await outcome(api.folders());
