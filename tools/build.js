@@ -1,6 +1,7 @@
 // Builds the two extensions: ext/ (the shared client) with an edition's folder laid over it, yahoo/
 // into dist/baltazar-mail-yahoo/ and gmail/ into dist/baltazar-mail-gmail/. Each edition gives its
-// manifest, its adapter (api.js) and its request rules (rules.js); the version comes from VERSION.
+// manifest, its icons (so the two tell apart when both are pinned), its adapter (api.js) and its
+// request rules (rules.js); the version comes from VERSION.
 // An edition's local.json (not in git) may give the key that pins the extension id of an unpacked
 // copy and, for Gmail, the OAuth client id. node tools/build.js [yahoo|gmail] [--store]; with no edition named, both
 // are built. --store leaves the key out, for the package a browser store takes, since a store
@@ -12,7 +13,7 @@ const ROOT = path.join(__dirname, "..");
 const SHARED = path.join(ROOT, "ext");
 // What every edition must give, and the files it may add besides; each edition's own hosts, which
 // no other edition's code may name outside a comment.
-const SLOTS = ["manifest.json", "api.js", "rules.js"];
+const SLOTS = ["manifest.json", "icons", "api.js", "rules.js"];
 const EDITIONS = {
   yahoo: { added: [], hosts: /yahoo|yusercontent/i },
   gmail: { added: ["auth.js", "rfc822.js"], hosts: /googleapis|accounts\.google|google\.com/i },
@@ -36,7 +37,7 @@ function build(edition, { store = false } = {}) {
     if (NOT_COPIED.has(name)) continue;
     if (!SLOTS.includes(name) && !ed.added.includes(name)) throw new Error(`${edition}/${name} is neither an edition file nor listed as added`);
     if (shared.has(name)) throw new Error(`${edition}/${name} would replace the shared ext/${name}`);
-    fs.cpSync(path.join(over, name), path.join(out, name));
+    fs.cpSync(path.join(over, name), path.join(out, name), { recursive: true });
   }
   const given = JSON.parse(fs.readFileSync(path.join(over, "manifest.json"), "utf8"));
   if ("version" in given) throw new Error(`${edition}/manifest.json must not name a version; VERSION does`);
