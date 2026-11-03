@@ -1,8 +1,8 @@
 // Builds the two extensions: ext/ (the shared client) with an edition's folder laid over it, yahoo/
 // into dist/baltazar-mail-yahoo/ and gmail/ into dist/baltazar-mail-gmail/. Each edition gives its
 // manifest, its adapter (api.js) and its request rules (rules.js); the version comes from VERSION.
-// gmail/local.json (not in git) may give the OAuth client id and the key that pins the extension
-// id of an unpacked copy. node tools/build.js [yahoo|gmail] [--store]; with no edition named, both
+// An edition's local.json (not in git) may give the key that pins the extension id of an unpacked
+// copy and, for Gmail, the OAuth client id. node tools/build.js [yahoo|gmail] [--store]; with no edition named, both
 // are built. --store leaves the key out, for the package a browser store takes, since a store
 // assigns the id itself and refuses a key.
 const fs = require("fs");

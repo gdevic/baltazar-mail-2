@@ -8,3 +8,4 @@ tools/sync.json
 *.zip
 dist/
 gmail/local.json
+yahoo/local.json
