@@ -2,11 +2,17 @@
 // "quoted phrases" combine them; field terms narrow: from: to: subject: has:attachment
 // is:starred is:unread is:read after:YYYY-MM-DD before:YYYY-MM-DD.
 //
-// Yahoo's search ORs keyword terms, ANDs field filters with one keyword group, rejects negated
-// keywords and senders, and ANDs an id:(...) list with any term. So a query is compiled to
-// disjunctive normal form; each conjunction runs one native query (field filters plus its
-// first keyword) and the remaining terms are applied exactly by asking which of those ids also
-// (or do not) match them. Queries Yahoo can answer in one request go out unchanged and page.
+// The provider's adapter supplies the dialect that writes terms in its own search language:
+// { atom(term, neg) } gives one term (or its negation), or null when the provider cannot express
+// it, and throws for a value the field does not know; compile(ast), when present, writes a whole
+// query, for a provider whose search takes any boolean query.
+//
+// Without compile the query is evaluated the way Yahoo's search needs: it ORs keyword terms, ANDs
+// field filters with one keyword group, rejects negated keywords and senders, and ANDs an
+// id:(...) list with any term. So a query is compiled to disjunctive normal form; each conjunction
+// runs one native query (field filters plus its first keyword) and the remaining terms are applied
+// exactly by asking which of those ids also (or do not) match them. Queries the provider can
+// answer in one request go out unchanged and page.
 
 const FIELDS = new Set(["from", "to", "subject", "has", "is", "after", "before"]);
 export const CAP = 500;          // messages fetched per native query of a compound search
@@ -106,10 +112,11 @@ export function parse(input) {
   return ast;
 }
 
-// ---------- terms to Yahoo atoms ----------
-const clean = v => v.replace(/["()]/g, " ").replace(/\s+/g, " ").trim();
+// ---------- term values, for the dialects ----------
+// A value with the characters that would end a term taken out.
+export const clean = v => v.replace(/["()]/g, " ").replace(/\s+/g, " ").trim();
 // A real calendar date as YYYY-MM-DD, or null (2026-02-30 is not one).
-function isoDate(v) {
+export function isoDate(v) {
   const m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])], t = new Date(Date.UTC(y, mo - 1, d));
@@ -117,40 +124,15 @@ function isoDate(v) {
   return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
 }
 
-// Yahoo atom for a term, or for its negation when Yahoo can negate it; null when it cannot.
-export function atom(term, neg = false) {
-  const v = clean(term.value), lv = v.toLowerCase();
-  switch (term.field) {
-    case null: return neg ? null : (/[\s:]/.test(v) ? `keyword:"${v}"` : `keyword:${v}`);
-    case "from": return neg ? null : `from:("${v}")`;
-    case "to": return neg ? null : `to:("${v}")`;
-    case "subject": return neg ? null : `subject:"${v}"`;
-    case "has":
-      if (/^attachments?$/.test(lv)) return `${neg ? "-" : ""}has:attachment`;
-      throw new Error(`has:${v} is not a search term; has:attachment is`);
-    case "is":
-      if (lv === "starred" || lv === "flagged") return `${neg ? "-" : ""}is:flagged`;
-      if (lv === "unread") return neg ? "is:read" : "is:unread";
-      if (lv === "read") return neg ? "is:unread" : "is:read";
-      throw new Error(`is:${v} is not a search term; is:starred, is:unread and is:read are`);
-    case "after": case "before": {
-      const d = isoDate(v);
-      if (!d) throw new Error(`${term.field}:${v} is not a date; write it as YYYY-MM-DD`);
-      const f = (term.field === "after") !== neg ? "after" : "before";
-      return `${f}:${d}`;
-    }
-  }
-  return null;
-}
 const isKeyword = t => t.field === null;
-const known = t => t.field === null || atom(t) !== null;
+const known = (t, d) => t.field === null || d.atom(t) !== null;
 
 // Throws, with the reason, for a term whose field does not know its value (is:important).
-export function check(node) {
+export function check(node, d) {
   if (!node) return;
-  if (node.t === "term") { if (node.field) atom(node); return; }
-  if (node.t === "not") return check(node.kid);
-  node.kids.forEach(check);
+  if (node.t === "term") { if (node.field) d.atom(node); return; }
+  if (node.t === "not") return check(node.kid, d);
+  node.kids.forEach(k => check(k, d));
 }
 
 // ---------- normal form ----------
@@ -177,12 +159,12 @@ function dnf(node, neg = false) {
 }
 
 // Splits a conjunction into what one native query can carry and what must be applied after.
-function plan(conj) {
+function plan(conj, d) {
   const native = [], seenField = new Set(), verify = [], exclude = [];
   let keyword = null;
   for (const { term, neg } of conj) {
-    if (!known(term)) { if (!neg) verify.push(term); else exclude.push(term); continue; }
-    const a = atom(term, neg);
+    if (!known(term, d)) { if (!neg) verify.push(term); else exclude.push(term); continue; }
+    const a = d.atom(term, neg);
     if (neg) { if (a) native.push(a); else exclude.push(term); continue; }
     if (isKeyword(term)) { if (!keyword) keyword = term; else verify.push(term); continue; }
     const key = term.field === "is" || term.field === "has" ? a : term.field;
@@ -191,17 +173,19 @@ function plan(conj) {
   return { native, keyword, verify, exclude };
 }
 
-// A query that is one native request: no AND among keywords, no negations Yahoo cannot do.
-// Returns the Yahoo query string, or null when it needs evaluation.
-export function nativeQuery(ast) {
+// A query that is one native request: with a dialect that compiles whole queries, always;
+// otherwise one with no AND among keywords and no negations the provider cannot do.
+// Returns the query string, or null when it needs evaluation.
+export function nativeQuery(ast, d) {
   if (!ast) return null;
-  // OR of plain keywords: Yahoo's own keyword semantics.
-  if (ast.t === "or" && ast.kids.every(k => k.t === "term" && isKeyword(k))) return ast.kids.map(k => atom(k)).join(" ");
+  if (d.compile) return d.compile(ast);
+  // OR of plain keywords: the provider's own keyword semantics.
+  if (ast.t === "or" && ast.kids.every(k => k.t === "term" && isKeyword(k))) return ast.kids.map(k => d.atom(k)).join(" ");
   const conjs = dnf(ast);
   if (conjs.length !== 1) return null;
-  const p = plan(conjs[0]);
+  const p = plan(conjs[0], d);
   if (p.verify.length || p.exclude.length) return null;
-  return [...p.native, p.keyword ? atom(p.keyword) : null].filter(Boolean).join(" ") || null;
+  return [...p.native, p.keyword ? d.atom(p.keyword) : null].filter(Boolean).join(" ") || null;
 }
 
 // ---------- evaluation ----------
@@ -215,39 +199,40 @@ function limited(fn, n) {
     next();
   });
 }
-// run(query, count) -> Promise<message[]> runs a Yahoo query (scope already applied by the
-// caller for base queries; id-filter queries need none). Returns { messages, truncated }.
-export async function evaluate(ast, run, scope = "") {
+// run(query, count) -> Promise<message[]> runs one query in the provider's language (scope
+// already applied by the caller for base queries; id-filter queries need none).
+// Returns { messages, truncated }.
+export async function evaluate(ast, run, scope = "", d) {
   const conjs = dnf(ast);
   let truncated = false;
   const byId = new Map();
   run = limited(run, PARALLEL);
   await Promise.all(conjs.map(async conj => {
-    const p = plan(conj);
+    const p = plan(conj, d);
     const fixed = [scope, ...p.native].filter(Boolean).join(" ");
     let base;
     if (p.keyword && p.verify.some(isKeyword)) {
       // Several keywords: fetch each, keep the smallest list as the base (complete if under CAP).
       const kws = [p.keyword, ...p.verify.filter(isKeyword)];
-      const lists = await Promise.all(kws.map(k => run(`${fixed} ${atom(k)}`, CAP).then(m => ({ k, m }))));
+      const lists = await Promise.all(kws.map(k => run(`${fixed} ${d.atom(k)}`, CAP).then(m => ({ k, m }))));
       lists.sort((a, b) => a.m.length - b.m.length);
       base = lists[0].m;
       p.verify = p.verify.filter(t => t !== lists[0].k).concat(lists[0].k === p.keyword ? [] : [p.keyword]);
     } else {
-      base = await run([fixed, p.keyword ? atom(p.keyword) : ""].filter(Boolean).join(" "), CAP);
+      base = await run([fixed, p.keyword ? d.atom(p.keyword) : ""].filter(Boolean).join(" "), CAP);
     }
     if (base.length >= CAP) truncated = true;
     let ids = base.map(m => m.id);
     const idq = () => `id:(${ids.join(" OR ")})`;
     for (const t of p.verify) {
       if (!ids.length) break;
-      const a = atom(t) || `keyword:"${clean(t.value)}"`;
+      const a = d.atom(t) || `keyword:"${clean(t.value)}"`;
       const hit = new Set((await run(`${idq()} ${a}`, ids.length)).map(m => m.id));
       ids = ids.filter(id => hit.has(id));
     }
     for (const t of p.exclude) {
       if (!ids.length) break;
-      const a = atom(t) || `keyword:"${clean(t.value)}"`;
+      const a = d.atom(t) || `keyword:"${clean(t.value)}"`;
       const hit = new Set((await run(`${idq()} ${a}`, ids.length)).map(m => m.id));
       ids = ids.filter(id => !hit.has(id));
     }

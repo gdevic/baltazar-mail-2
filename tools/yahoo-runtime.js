@@ -1,5 +1,5 @@
 // Runtime test: loads the real extension into Chromium with a mocked Yahoo backend and
-// drives reading, folder switching, and compose/send. node tools/runtime.js
+// drives reading, folder switching, and compose/send. node tools/yahoo-runtime.js
 const path = require("path");
 const fs = require("fs");
 const { launch } = require("./harness");
@@ -622,7 +622,7 @@ const { launch } = require("./harness");
   await page.waitForTimeout(3500);
   const woke = Date.now();
   await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
-  await page.waitForFunction(() => document.title === "(5) Baltazar Mail", null, { timeout: 2000 }).catch(() => {});
+  await page.waitForFunction(() => document.title === "(5) Baltazar Mail for Yahoo", null, { timeout: 2000 }).catch(() => {});
   results.wake = { title: await page.title(), ms: Date.now() - woke };
   results.cspViolations = cspViolations;
   console.log(JSON.stringify(results, null, 1));
@@ -683,9 +683,9 @@ const { launch } = require("./harness");
   }
   expect(results.rows.legacy18 === 18 && results.rows.field === "80", "row height migrated from pixels: " + JSON.stringify(results.rows));
   expect(results.textSize.folder === 16.25 && results.textSize.settings === 13 && results.textSize.folderBack === 13, "text size scales the app, not Settings: " + JSON.stringify(results.textSize));
-  expect(results.tabIcon.title === "(3) Baltazar Mail" && results.tabIcon.href === "icons/32.png", "plain tab icon for mail already there: " + JSON.stringify(results.tabIcon));
-  expect(results.newMail.title === "(4) Baltazar Mail" && results.newMail.dotted === "data:image/png;base64," && results.newMail.cleared === "icons/32.png", "new-mail dot: " + JSON.stringify(results.newMail));
-  expect(results.wake.title === "(5) Baltazar Mail" && results.wake.ms < 2000, "checks for mail on waking: " + JSON.stringify(results.wake));
+  expect(results.tabIcon.title === "(3) Baltazar Mail for Yahoo" && results.tabIcon.href === "icons/32.png", "plain tab icon for mail already there: " + JSON.stringify(results.tabIcon));
+  expect(results.newMail.title === "(4) Baltazar Mail for Yahoo" && results.newMail.dotted === "data:image/png;base64," && results.newMail.cleared === "icons/32.png", "new-mail dot: " + JSON.stringify(results.newMail));
+  expect(results.wake.title === "(5) Baltazar Mail for Yahoo" && results.wake.ms < 2000, "checks for mail on waking: " + JSON.stringify(results.wake));
   {
     const f = results.folderMemory;
     expect(f.before.sel && f.before.reader && f.before.sel.startsWith(f.before.reader) && f.away.sel === "" && f.away.reader === "" &&
@@ -694,8 +694,8 @@ const { launch } = require("./harness");
   expect(results.vDownload === "report.pdf:true" && results.rawFetches === 1 && !/^chrome-extension/.test(results.rawOrigin || ""), "bytes: " + JSON.stringify([results.vDownload, results.rawFetches, results.rawOrigin]));
   expect(results.card.head.includes("s2@x.com") && /^Last exchange /.test(results.card.stats) && !/wrote|\d+ times?/.test(results.card.stats) && results.card.recent >= 1 && results.cardClosed, "contact card: " + JSON.stringify(results.card));
   expect(/^Version 99\.0\.0 is available\. Download it from GitHub\. Checked daily with GitHub; no data about you is sent\.$/.test(results.update.note) &&
-    results.update.href === "https://github.com/gdevic/baltazar-mail/releases/latest" && results.update.dot === 1 && /^Baltazar Mail \d+\.\d+\.\d+$/.test(results.update.top) && results.update.calls === 1 && !results.update.cookie &&
-    results.update.url === "https://api.github.com/repos/gdevic/baltazar-mail/releases/latest", "update notice: " + JSON.stringify(results.update));
+    results.update.href === "https://github.com/gdevic/baltazar-mail-2/releases/latest" && results.update.dot === 1 && /^Baltazar Mail for Yahoo \d+\.\d+\.\d+$/.test(results.update.top) && results.update.calls === 1 && !results.update.cookie &&
+    results.update.url === "https://api.github.com/repos/gdevic/baltazar-mail-2/releases/latest", "update notice: " + JSON.stringify(results.update));
   expect(results.spam.dest === "6" && results.spam.undo.includes("as spam") && !results.spam.next.empty && results.spam.next.subject && results.spam.next.sel.startsWith(results.spam.next.subject) &&
     results.spam.undone.subject === results.spam.was && results.spam.undone.sel.startsWith(results.spam.was) &&
     !results.spam.elsewhere.empty && results.spam.elsewhere.subject === results.spam.next.subject && results.spam.elsewhere.sel.startsWith(results.spam.next.subject), "spam moves to Bulk: " + JSON.stringify(results.spam));

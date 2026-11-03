@@ -167,7 +167,8 @@ export function scanStep(when, newest, { full, newestSeen, now }) {
   return { stop: false, record: true, newest: Math.max(newest, when) };
 }
 
-// Walk a folder newest-first. full: everything; otherwise stop at messages older than the last scan.
+// Walk a folder newest-first. full: everything the provider lets a full scan read
+// (api.LIMITS.scanMax rows); otherwise stop at messages older than the last scan.
 async function scanFolder(folderId, direction, full, progress) {
   await loadAll();
   const metaKey = `scan:${folderId}`;
@@ -176,7 +177,8 @@ async function scanFolder(folderId, direction, full, progress) {
   let offset = 0, newest = newestSeen, done = false, seen = 0;
   const pending = new Map(), now = Date.now() / 1000;
   while (!done) {
-    const r = await api.list(folderId, SCAN_PAGE, offset);
+    // background: a provider with a request quota (Gmail) paces the scan to leave room for browsing
+    const r = await api.list(folderId, SCAN_PAGE, offset, { background: true });
     for (const m of r.messages) {
       const step = scanStep(Number(m.headers?.date) || 0, newest, { full, newestSeen, now });
       if (step.stop) { done = true; break; }
@@ -184,7 +186,7 @@ async function scanFolder(folderId, direction, full, progress) {
       newest = step.newest;
     }
     offset += r.messages.length;
-    if (r.messages.length < SCAN_PAGE) done = true;
+    if (r.messages.length < SCAN_PAGE || (full && offset >= api.LIMITS.scanMax)) done = true;
     if (pending.size >= 300) await flush(pending);
     progress?.(folderId, seen);
   }
@@ -207,6 +209,27 @@ export async function sync({ inbox, sent, full = false, progress } = {}) {
 }
 
 export async function isBuilt() { return !!(await getMeta("built")); }
+
+// Everything learnt, scan bookmarks and hide choices included, gone (signing out).
+export async function clear() {
+  await openDb();
+  await new Promise((ok, no) => {
+    const t = db.transaction([STORE, META], "readwrite");
+    t.objectStore(STORE).clear(); t.objectStore(META).clear();
+    t.oncomplete = ok; t.onerror = () => no(t.error);
+  });
+  cache = null;
+  changed();
+}
+
+// The address book is one account's: when another account signs in, it starts afresh. The first
+// account seen is simply noted.
+export async function useAccount(email) {
+  const who = String(email).toLowerCase(), was = await getMeta("account");
+  if (was === who) return;
+  if (was) await clear();
+  await setMeta("account", who);
+}
 
 // Called after the user sends a message, so new recipients rank at once.
 export async function noteSent(recipients) {

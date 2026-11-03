@@ -7,3 +7,4 @@ tools/sync.json
 *.har
 *.zip
 dist/
+gmail/local.json

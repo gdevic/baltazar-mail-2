@@ -1,9 +1,8 @@
-// Attachment strip under the message body and the viewer. Attachment bytes come from the message
-// source. Images and media play in native elements here; everything else is parsed and drawn in
+// Attachment strip under the message body and the viewer. Attachment bytes come from the provider
+// adapter. Images and media play in native elements here; everything else is parsed and drawn in
 // the sandboxed render.html (PDF.js, docx-preview, SheetJS, ZIP listings, text). Formats with no
-// renderer there use Yahoo's document converter, and failing that, Yahoo's extracted text.
+// renderer there use the provider's document converter and extracted text, when it has them.
 
-import { listParts, extract } from "./mime.js";
 import { asText, hexDump } from "./bytes.js";
 import { esc, noBidi } from "./text.js";
 
@@ -39,7 +38,9 @@ function kindOf(a) {
 const LABEL = { pdf: "PDF", image: "IMG", html: "HTML", audio: "AUD", video: "VID", zip: "ZIP", doc: "DOC", sheet: "XLS", slide: "PPT", code: "CODE", text: "TXT", other: "FILE" };
 const CLASS = { pdf: "k-pdf", image: "k-image", html: "k-html", audio: "k-audio", video: "k-video", zip: "k-zip", doc: "k-doc", sheet: "k-sheet", slide: "k-slide", code: "k-code", text: "k-text", other: "k-other" };
 
-let hooks = null;   // { thumb(a), raw(msgId) -> Uint8Array, docPages(docId, start, end, retry), cleanHtml(html), status(msg) }
+// { thumb(msgId, a) -> data URL | null, bytes(msgId, a) -> { bytes, type, filename }, docPages?(docId, start, end, retry),
+//   extractText?(a) -> string, originalUrl?(a) -> url | null, cleanHtml(html), status(msg), providerName }
+let hooks = null;
 let items = [], index = 0, msgId = null;
 let objectUrls = [];
 
@@ -73,7 +74,7 @@ export function onKey(e) {
 // ---------- strip ----------
 export function renderStrip(message, attachments, isCurrent) {
   const box = $("r-attach");
-  items = attachments.filter(a => a.disposition !== "inline" && /^https:\/\//i.test(a.downloadUrl || ""));
+  items = attachments.filter(a => a.disposition !== "inline");
   msgId = message.id;
   box.classList.toggle("hidden", !items.length);
   if (!items.length) { box.innerHTML = ""; return; }
@@ -87,8 +88,8 @@ export function renderStrip(message, attachments, isCurrent) {
     }).join("");
   box.onclick = e => { const c = e.target.closest(".att-card"); if (c) show(Number(c.dataset.i)); };
   items.forEach(async (a, i) => {
-    if (kindOf(a) !== "image" || !a.thumbnailUrl) return;
-    const src = await hooks.thumb(a);
+    if (kindOf(a) !== "image") return;
+    const src = await hooks.thumb(message.id, a).catch(() => null);
     if (!src || !isCurrent(message.id)) return;
     const slot = box.querySelector(`.att-thumb[data-i="${i}"]`);
     if (slot) slot.replaceChildren(Object.assign(document.createElement("img"), { src, alt: "" }));
@@ -96,37 +97,14 @@ export function renderStrip(message, attachments, isCurrent) {
 }
 
 // ---------- fetching ----------
-// Yahoo's download links cannot be fetched, so attachment bytes are cut out of the message's
-// raw source (one fetch per message, shared by its attachments and by inline images Yahoo
-// cannot render).
-const rawCache = new Map();      // msgId -> Promise<parsed MIME>
-export function parsedMessage(id) {
-  if (!rawCache.has(id)) {
-    rawCache.set(id, hooks.raw(id).then(listParts));
-    while (rawCache.size > 3) rawCache.delete(rawCache.keys().next().value);
-  }
-  const p = rawCache.get(id);
-  p.catch(() => rawCache.delete(id));
-  return p;
-}
-
-// The blob's type comes from the file name. The sender's header is used only for an image, audio
-// or video type the name does not settle; anything else is untyped, since an image opened in a
-// tab from the viewer would otherwise show the sender's HTML at the extension's address.
+// The provider hands over an attachment's bytes (hooks.bytes). The blob's type comes from the
+// file name. The sender's header is used only for an image, audio or video type the name does
+// not settle; anything else is untyped, since an image opened in a tab from the viewer would
+// otherwise show the sender's HTML at the extension's address.
 const MEDIA_TYPE = /^(image\/(png|jpeg|gif|webp|bmp|avif|x-icon|vnd\.microsoft\.icon)|audio\/[\w.+-]+|video\/[\w.+-]+)$/i;
 async function fetchBlob(a, id = msgId) {
-  const { bytes, type } = extract(await parsedMessage(id), a.partId, a.filename);
+  const { bytes, type } = await hooks.bytes(id, a);
   return new Blob([bytes], { type: MIME[extOf(a.filename)] || (MEDIA_TYPE.test(type || "") ? type : "application/octet-stream") });
-}
-
-async function extractedText(a) {
-  if (!a.textExtractionUrl) throw new Error("no text extraction available");
-  const resp = await fetch(a.textExtractionUrl.replace(/&amp;/g, "&"), { credentials: "include", signal: AbortSignal.timeout(30000) });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const j = await resp.json();
-  const t = j?.result?.textExtractResult;
-  if (typeof t !== "string") throw new Error("no text in response");
-  return t;
 }
 
 function objectUrl(blob, type) {
@@ -159,7 +137,7 @@ function close() {
 const center = html => `<div class="v-center">${html}</div>`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// Office formats that have a renderer here; the rest go to Yahoo's converter.
+// Office formats that have a renderer here; the rest go to the provider's converter.
 const isDocx = a => extOf(a.filename) === "docx" || /wordprocessingml/.test(a.subtype || "");
 const isSheet = a => ["xlsx", "xlsm", "xls", "ods", "numbers"].includes(extOf(a.filename)) || /spreadsheetml|ms-excel/.test(a.subtype || "");
 
@@ -206,7 +184,7 @@ async function show(i) {
     }
   } catch (e) {
     if (stale()) return;
-    // The renderer or the bytes failed: Yahoo's converter, then its plain text, then give up.
+    // The renderer or the bytes failed: the provider's converter, then its plain text, then give up.
     try { if (k !== "image" && k !== "audio" && k !== "video" && k !== "zip") return await showConverted(ctx); } catch {}
     if (stale()) return;
     // A small file nothing could preview can still be read: as text when it looks like text,
@@ -308,7 +286,7 @@ function sandboxed(ctx, request) {
   });
 }
 
-// ----- Formats with no renderer here: Yahoo's converter (pages load as you scroll), then its text -----
+// ----- Formats with no renderer here: the provider's converter (pages load as you scroll), then its text -----
 const PENDING = new Set([605, 612, 621, 814]);
 
 async function fetchPages(docId, s, e, stale) {
@@ -324,18 +302,19 @@ async function fetchPages(docId, s, e, stale) {
 
 async function showConverted(ctx) {
   const { a, stale } = ctx;
-  if (!a.documentId) return showText(ctx);
+  if (!a.documentId || !hooks.docPages) return showText(ctx);
   const first = await fetchPages(a.documentId, 1, CHUNK, stale);
   if (!first || stale()) return;
   const total = first.total || first.pages.length;
-  await sandboxed(ctx, { kind: "pages", total, pages: first.pages.map(p => ({ html: p.html, css: p.css })) });
+  await sandboxed(ctx, { kind: "pages", total, pages: first.pages.map(p => ({ html: p.html, css: p.css })), provider: hooks.providerName });
 }
 
 async function showText(ctx) {
   const { a, k, stale } = ctx;
-  const text = await extractedText(a);
+  if (!hooks.extractText) throw new Error("no preview available");
+  const text = await hooks.extractText(a);
   if (stale()) return;
-  await sandboxed(ctx, { kind: "text", text, ext: extOf(a.filename), source: k === "text" || k === "code" ? "stored" : "extracted" });
+  await sandboxed(ctx, { kind: "text", text, ext: extOf(a.filename), source: k === "text" || k === "code" ? "stored" : "extracted", provider: hooks.providerName });
 }
 
 // ---------- download / open ----------
@@ -347,8 +326,9 @@ async function download(a) {
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 60000);
   } catch {
-    // A background tab on Yahoo's link: the browser follows the redirect and saves the original.
-    chrome.tabs.create({ url: a.downloadUrl.replace(/&amp;/g, "&"), active: false });
+    // The provider's own link, when it has one: a background tab follows it and saves the original.
+    const u = hooks.originalUrl?.(a);
+    if (u) chrome.tabs.create({ url: u, active: false }); else hooks.status("could not fetch the attachment");
   }
 }
 
@@ -367,5 +347,8 @@ async function openInTab(a) {
     const u = URL.createObjectURL(new Blob([blob], { type }));
     window.open(u, "_blank", "noopener");
     setTimeout(() => URL.revokeObjectURL(u), 60000);
-  } catch { chrome.tabs.create({ url: a.downloadUrl.replace(/&amp;/g, "&") }); }
+  } catch {
+    const u = hooks.originalUrl?.(a);
+    if (u) chrome.tabs.create({ url: u }); else hooks.status("could not fetch the attachment");
+  }
 }

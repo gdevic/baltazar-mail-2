@@ -7,8 +7,8 @@ fail() { echo "::error::$1"; exit 1; }
 
 tag="$TAG"
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Tag must look like v1.2.3"
-version=$(jq -er .version ext/manifest.json)
-[ "$tag" = "v$version" ] || fail "Tag $tag does not match ext/manifest.json version $version"
+version=$(tr -d '[:space:]' < VERSION)
+[ "$tag" = "v$version" ] || fail "Tag $tag does not match version $version in VERSION"
 if [ "$EVENT" = "workflow_dispatch" ] && [ "$REF" != "refs/heads/main" ]; then
   fail "Run releases from main, not $REF"
 fi

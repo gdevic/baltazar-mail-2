@@ -123,10 +123,10 @@
   <footer id="status"><span id="st-msg"></span><span id="st-undo"></span><span id="st-lat"></span></footer>
 </div>
 <div id="signin" class="hidden">
-  <h1>Baltazar Mail</h1>
+  <h1 id="signin-title">Baltazar Mail</h1>
   <div id="signin-none">
-    <p>No Yahoo Mail session found in this browser.</p>
-    <p><a href="https://mail.yahoo.com/" target="_blank" rel="noopener">Sign in at mail.yahoo.com</a>, then <button id="retry">retry</button>.</p>
+    <p id="signin-text"></p>
+    <p><a id="signin-link" target="_blank" rel="noopener"></a><span id="signin-then"></span><button id="retry">retry</button><span id="signin-end"></span></p>
   </div>
   <div id="signin-fail" class="hidden" role="alert">
     <p id="fail-text"></p>
@@ -163,7 +163,7 @@
     <b>Address book</b>
     <div class="ab-row"><span id="ab-summary">Learned from your Inbox and Sent headers.</span><button id="ab-open">Manage...</button></div>
     <p id="update-note" class="hidden"></p>
-    <p><button id="settings-close">Close</button> <button id="settings-reset">Reset pane sizes</button></p>
+    <p><button id="settings-close">Close</button> <button id="settings-reset">Reset pane sizes</button> <button id="signout" class="hidden" title="Forget the sign-in; the sign-in page asks again">Sign out</button></p>
    </div>
    <div id="settings-ab" class="hidden">
     <div class="ab-head"><button id="ab-back" title="Back to Settings (Esc)">‹ Settings</button><b>Address book</b><span></span></div>

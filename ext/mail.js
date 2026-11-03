@@ -6,12 +6,11 @@ import * as viewer from "./viewer.js";
 import { parse, check, nativeQuery, evaluate, describe, CAP } from "./query.js";
 import * as update from "./update.js";
 import { darkenHtml, PAGE as DARK } from "./darken.js";
-import { extract } from "./mime.js";
-import { sniffImage } from "./bytes.js";
-import { remember, failure, freshFailure, recent, RETRY_FAILED } from "./cache.js";
 import { esc, noBidi } from "./text.js";
 
 const $ = id => document.getElementById(id);
+// The extension's name as its manifest gives it: this client serves more than one extension.
+const APP = chrome.runtime.getManifest().name || "Baltazar Mail";
 const SYSTEM_ORDER = ["INBOX", "DRAFT", "SENT", "ARCHIVE", "BULK", "TRASH"];
 const PAGE = 100;
 const DRAG_TYPE = "application/x-baltazar-mail-ids";
@@ -96,13 +95,13 @@ const state = {
 const status = (msg, ms) => { $("st-msg").textContent = msg; if (ms != null) $("st-lat").textContent = `${ms} ms`; };
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const folderType = f => f ? (SYSTEM_ORDER.find(t => f.types?.includes(t)) || null) : null;
-// System folders of the primary account (the one holding Yahoo's own Inbox, folder 1); linked
-// accounts bring an Inbox, Sent and so on of their own.
+// System folders of the primary account (the one holding the mailbox's own Inbox, folder 1 at
+// Yahoo); linked accounts bring an Inbox, Sent and so on of their own.
 const ofPrimary = f => { const acct = state.byId.get("1")?.acctId; return acct == null || f.acctId == null || f.acctId === acct; };
 const folderByType = t => { const all = state.folders.filter(f => f.types.includes(t)); return all.find(ofPrimary) || all[0]; };
 const inboxId = () => folderByType("INBOX")?.id ?? "1";
 const isHidden = f => f.types.some(t => t === "SYNC" || t === "INVISIBLE");
-// Yahoo names the spam folder "Bulk" internally; the web UI shows it as Spam.
+// The BULK folder type is the spam folder, shown as Spam whatever the provider calls it.
 const folderName = f => f ? (folderType(f) === "BULK" ? "Spam" : f.name) : "";
 
 function toDate(epoch) {
@@ -150,13 +149,13 @@ function notify(text, { info = false, key = null, err = null, what = "", detail 
 function clearNotice(key) { if (key === noticeKey) $("notice").classList.add("hidden"); }
 function errorReport(what, e) {
   const detail = e.detail === undefined ? "" : (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)).slice(0, 1500);
-  return [`Baltazar Mail ${chrome.runtime.getManifest().version}`, navigator.userAgent, `${what}: ${e.name}: ${e.message}`,
+  return [`${APP} ${chrome.runtime.getManifest().version}`, navigator.userAgent, `${what}: ${e.name}: ${e.message}`,
     detail, (e.stack || "").split("\n").slice(1, 6).join("\n")].filter(Boolean).join("\n");
 }
 $("notice-close").onclick = () => $("notice").classList.add("hidden");
 async function copyReport(report, button) {
   let text = report;
-  try { text = text.replace(/^(Baltazar Mail \S+)/, `$1 (${(await chrome.management.getSelf()).installType})`); } catch { /* version alone */ }
+  try { const how = (await chrome.management.getSelf()).installType; text = text.replace(/^[^\n]*/, m => `${m} (${how})`); } catch { /* version alone */ }
   try {
     await navigator.clipboard.writeText(text);
     button.textContent = "Copied";
@@ -177,9 +176,10 @@ const FAILED = {
   spam: "Could not mark the messages as spam.", notspam: "Could not mark the messages as not spam.",
   create: "Could not create the folder.", rename: "Could not rename the folder.", "move folder": "Could not move the folder.",
   "delete folder": "Could not delete the folder.", empty: "Could not empty the folder.", "mark all read": "Could not mark the folder read.",
+  "sign out": "Could not sign out.",
 };
-// A request that never reached Yahoo fails with the browser's bare "Failed to fetch".
-const cause = e => e instanceof TypeError && /fetch/i.test(e.message) ? "Yahoo could not be reached; check the connection." : e.message;
+// A request that never reached the mail service fails with the browser's bare "Failed to fetch".
+const cause = e => e instanceof TypeError && /fetch/i.test(e.message) ? `${api.PROVIDER.name} could not be reached; check the connection.` : e.message;
 
 // Errors that mean "no session" show the sign-in panel; others a notice, or with quiet (a
 // background check that simply runs again) only the status line.
@@ -307,7 +307,7 @@ const twistyHtml = state => `<span class="tw"${state ? ` data-tw="${state}"` : "
 const managed = f => !!f && !folderType(f);
 const acctOf = f => String(f?.acctId || folderByType("INBOX")?.acctId || "1");
 const sameAcct = (a, b) => acctOf(a) === acctOf(b);
-// Folders may also live under Inbox, as in Yahoo's own client.
+// Folders may also live under Inbox.
 const canParent = f => managed(f) || f.id === folderByType("INBOX")?.id;
 const leafName = f => f.name.split("/").pop();
 const parentPath = f => f.name.split("/").slice(0, -1).join("/");
@@ -416,7 +416,7 @@ async function deleteFolderAsk(f) {
   });
 }
 
-// Yahoo's folder list can lag a deletion: a refused delete counts as done when the folder is no
+// The folder list can lag a deletion: a refused delete counts as done when the folder is no
 // longer listed, and one that still is gets a second try after a moment.
 async function deleteOne(id) {
   try { await api.deleteFolder(id); return; } catch (e) {
@@ -437,22 +437,22 @@ async function emptyFolderAsk(f) {
   });
 }
 
-// Yahoo marks a folder read as a background task. When the task reports that it changed nothing
+// The provider marks a folder read as one operation. When it reports that it changed nothing
 // while the folder still counts unread mail, the unread messages are found and marked one by one.
-// Yahoo's folder counts can trail the change, so the folder shows read at once and the counts are
-// read again a few seconds later.
+// Folder counts can trail the change, so the folder shows read at once and the counts are read
+// again a few seconds later.
 // Marks unread messages read a page at a time until none are left; a page that comes back
-// unchanged, or that Yahoo refuses in part, stops it with an error.
+// unchanged, or that the provider refuses in part, stops it with an error.
 async function markEachRead(page) {
   let prev = "";
   for (let i = 0; i < 50; i++) {
     const ids = (await page()).messages.map(m => m.id).filter(api.isMessageId);
     if (!ids.length) return;
     const key = ids.join();
-    if (key === prev) throw new Error(`Yahoo kept ${plural(ids.length, "message")} unread`);
+    if (key === prev) throw new Error(`${api.PROVIDER.name} kept ${plural(ids.length, "message")} unread`);
     prev = key;
     const r = await api.setRead(ids, true);
-    if (r.failed?.length) throw new Error(`Yahoo did not mark ${plural(r.failed.length, "message")} read`);
+    if (r.failed?.length) throw new Error(`${api.PROVIDER.name} did not mark ${plural(r.failed.length, "message")} read`);
   }
 }
 
@@ -461,12 +461,12 @@ async function markAllRead(f) {
     if (f) {
       if (!f.unread) { status(`${folderName(f)} has no unread mail`); return; }
       const r = await api.markFolderRead(f.id, f.unread, f.acctId || "1");
-      // Yahoo's bulk task can finish having changed nothing (seen on Spam); what is still unread
-      // is then marked message by message.
-      if (r.task && !Number(r.task.completed)) await markEachRead(() => api.query(`folderId:${f.id} is:unread`, 100));
+      // A bulk operation can finish having changed nothing (seen on Yahoo's Spam); what is still
+      // unread is then marked message by message.
+      if (r.changed === 0) await markEachRead(() => api.query(api.queries.unreadIn(f.id), 100));
     } else {
       // Starred is a search across folders: every starred unread message, not only those loaded
-      await markEachRead(() => api.search(`${STARRED_Q} is:unread`, null, 100, 0, true));
+      await markEachRead(() => api.search(api.queries.starred(true), null, 100, 0, true));
     }
   } catch (e) { handleError(e, "mark all read"); return; }
   const here = !f || (state.view.kind === "folder" && state.view.folderId === f.id);
@@ -535,7 +535,7 @@ function askName(title, value, check) {
 // Patch counts in place so the tree (and any focus in its filter) is not rebuilt for a flag change.
 function updateFolderCounts() {
   for (const el of $("folder-list").querySelectorAll(".folder")) {
-    if (el.dataset.id === STARRED) { el.querySelector(".ct").textContent = state.starredCount == null ? "" : state.starredCount >= STARRED_MAX ? `${STARRED_MAX}+` : (state.starredCount || ""); continue; }
+    if (el.dataset.id === STARRED) { el.querySelector(".ct").textContent = state.starredCount == null ? "" : state.starredCount >= STARRED_MAX && !state.starredExact ? `${STARRED_MAX}+` : (state.starredCount || ""); continue; }
     const f = state.byId.get(el.dataset.id); if (!f) continue;
     el.querySelector(".ct").textContent = f.unread ? f.unread : (f.total || "");
     el.classList.toggle("unread", !!f.unread);
@@ -570,8 +570,8 @@ async function loadFolders(silent = false) {
     state.modseq.set(f.id, f.highestModSeq);
   }
   // A poll sees a change in some folder nearly every time; the tree is redrawn only when what it
-  // shows changed, and the Starred count (a 500-message search) is redone at most once a minute,
-  // or at once while Starred is open.
+  // shows changed, and the Starred count (where the provider keeps none, a 500-message search)
+  // is redone at most once a minute, or at once while Starred is open.
   const shown = JSON.stringify(r.folders.map(f => [f.id, f.name, f.unread, f.total, f.types]));
   if (shown !== lastFoldersShown) { lastFoldersShown = shown; renderFolders(); }
   if (state.starredCount == null || (changed.length && (state.view.starred || Date.now() - lastStarredCount > 60000))) { lastStarredCount = Date.now(); refreshStarredCount(); }
@@ -581,7 +581,7 @@ async function loadFolders(silent = false) {
 
 function updateTitle() {
   const unread = folderByType("INBOX")?.unread || 0;
-  document.title = (unread ? `(${unread}) ` : "") + "Baltazar Mail";
+  document.title = (unread ? `(${unread}) ` : "") + APP;
   noteInbox(unread);
 }
 
@@ -643,16 +643,16 @@ async function loadList(mode = "fresh", focusId = null) {
   status(mode === "more" ? "loading more..." : "loading...");
   let r, other = null;
   try {
-    // Searches Yahoo can answer in one query page normally; compound ones (AND between words,
-    // NOT of words or senders) are evaluated whole by query.js. A scoped search also searches
-    // everything outside the scope; those hits are listed below the scoped ones.
-    const nq = v.kind === "search" ? (v.raw || nativeQuery(parse(v.term))) : null;
+    // Searches the provider can answer in one query page normally; compound ones it cannot (AND
+    // between words, NOT of words or senders, at Yahoo) are evaluated whole by query.js. A scoped
+    // search also searches everything outside the scope; those hits are listed below the scoped ones.
+    const nq = v.kind === "search" ? (v.raw || nativeQuery(parse(v.term), api.dialect)) : null;
     if (v.kind === "search" && !nq) {
       const t0 = performance.now(), ast = parse(v.term);
       const runQ = (s, n) => api.query(s, n).then(x => x.messages);
       const [res, oth] = await Promise.all([
-        evaluate(ast, runQ, api.scopeFilter({ include: v.scope })),
-        v.scope ? evaluate(ast, runQ, api.scopeFilter({ exclude: v.scope })).catch(() => null) : null,
+        evaluate(ast, runQ, api.scopeFilter({ include: v.scope }), api.dialect),
+        v.scope ? evaluate(ast, runQ, api.scopeFilter({ exclude: v.scope }), api.dialect).catch(() => null) : null,
       ]);
       r = { messages: res.messages, ms: Math.round(performance.now() - t0), complete: true, truncated: res.truncated || !!oth?.truncated };
       if (oth) other = { messages: oth.messages.slice(0, ELSEWHERE_MAX) };
@@ -914,9 +914,9 @@ function updateToolbar() {
 let currentBody = null;
 let markReadTimer = null;
 
-// Yahoo's HTML is server-sanitised; DOMPurify (vendor/purify.min.js) removes anything that could
-// still run, navigate or submit. Links (HTML and SVG <a>, image-map <area>) open in a new tab,
-// since the reader frame cannot navigate.
+// DOMPurify (vendor/purify.min.js) removes anything in a message that could run, navigate or
+// submit, whatever the sender wrote and whether or not the provider cleaned it first. Links (HTML
+// and SVG <a>, image-map <area>) open in a new tab, since the reader frame cannot navigate.
 // The reader shrinks wide images with height:auto, which would otherwise follow the picture's own
 // shape; an image's width and height attributes set its proportions instead, as mail clients
 // honour them (a 640x1 spacer built from a 1x1 PNG stays one pixel tall, not a 640px square).
@@ -941,77 +941,19 @@ function cleanHtml(html) {
   return purify.sanitize(html, { FORCE_BODY: true, FORBID_TAGS: ["form", "input", "button", "textarea", "select", "option"], FORBID_ATTR: ["ping"], ADD_ATTR: ["target"] });
 }
 
-// Inline images (cid parts) are thumbnails of message parts in this mailbox, served by
-// cloud-apis.mail.yahoo.com with the session cookies, which the sandboxed frame cannot send. They
-// are fetched here and handed to the frame as data: URLs. Only real <img> sources with exactly that
-// address shape in the user's own mailbox are fetched, and only image responses are kept, so a
-// message cannot make the extension request any other Yahoo address with the user's session.
-// Image caches keep the newest entries up to a limit, so a long session does not hold every image
-// it ever showed, and a failure is remembered for a minute, then tried again.
-const partCache = new Map();       // url -> data: URL, or failure()
-const PART_PATH = /^\/ws\/v3\/mailboxes\/@\.id==([A-Za-z0-9_-]+)\/messages\/@\.id==([A-Za-z0-9_-]+)\/content\/parts\/@\.id==[0-9.]+\/thumbnail(?:&[A-Za-z0-9_.~%=-]+)*$/;
-function isPartUrl(u, mailboxId, ids) {
-  try {
-    const url = new URL(u);
-    const m = url.pathname.match(PART_PATH);
-    return url.protocol === "https:" && url.host === "cloud-apis.mail.yahoo.com" && !url.username && !url.password &&
-      m && m[1] === mailboxId && (!ids || ids.includes(m[2])) && /^(\?[A-Za-z0-9_.~%=&-]*)?$/.test(url.search) && !url.hash;
-  } catch { return false; }
-}
-
-// message: the one the HTML belongs to; only its own parts are fetched (by id or immutable id).
-async function inlineYahooParts(html, message) {
-  const ids = [message?.id, message?.immutableid].filter(Boolean).map(String);
+// Inline images (cid parts of the message) cannot be loaded by the sandboxed frame, which has no
+// session; the provider fetches them here (api.inlineSource) and they go to the frame as data:
+// URLs. Only sources the provider recognises as inline references are asked for, at most 60 per
+// message. body: the api.body result the HTML belongs to, so only its own parts are fetched.
+async function inlineImages(html, body) {
   const tpl = document.createElement("template");      // inert: nothing in it loads
   tpl.innerHTML = html;
-  const mailboxId = (await api.bootstrap()).mailboxId;
-  const imgs = [...tpl.content.querySelectorAll("img[src]")].filter(img => isPartUrl(img.getAttribute("src"), mailboxId, ids));
+  const imgs = [...tpl.content.querySelectorAll("img[src]")].filter(img => api.isInlineRef(img.getAttribute("src")));
   if (!imgs.length) return html;
-  const urls = [...new Set(imgs.map(img => img.getAttribute("src")))].slice(0, 60);
-  await Promise.all(urls.map(async u => {
-    const c = partCache.get(u);
-    if (typeof c === "string" || freshFailure(c)) return;
-    try {
-      const resp = await fetch(u, { credentials: "include", signal: AbortSignal.timeout(30000) });
-      if (!resp.ok) throw new Error(resp.status);
-      const blob = await resp.blob();
-      if (!/^image\/(png|jpeg|gif|webp|bmp|avif)$/i.test(blob.type)) throw new Error(blob.type || "untyped");
-      const dataUrl = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
-      remember(partCache, u, dataUrl);
-    } catch { remember(partCache, u, failure()); }
-  }));
-  const failed = urls.filter(u => partCache.get(u)?.failed && !recent(fromSource.get(u)));
-  if (failed.length) await partsFromSource(failed);
-  for (const img of imgs) { const d = partCache.get(img.getAttribute("src")); if (typeof d === "string") img.setAttribute("src", d); }
+  const srcs = [...new Set(imgs.map(img => img.getAttribute("src")))].slice(0, 60);
+  const got = new Map(await Promise.all(srcs.map(async s => [s, await api.inlineSource(s, body).catch(() => null)])));
+  for (const img of imgs) { const d = got.get(img.getAttribute("src")); if (typeof d === "string") img.setAttribute("src", d); }
   return tpl.innerHTML;
-}
-
-// Yahoo cannot render some inline parts (a malformed type such as "image/jpeg;base64" gives
-// EP-5001), so those are cut out of the message's own source, as attachments are. The format
-// comes from the bytes, not from the sender's header; anything that is not an image is dropped.
-const fromSource = new Map();      // url -> time it was last tried from the source
-const RAW_FALLBACK_MAX = 10 << 20;
-async function partsFromSource(urls) {
-  const byMsg = new Map();
-  for (const u of urls) {
-    remember(fromSource, u, Date.now());
-    const m = new URL(u).pathname.match(/\/messages\/@\.id==([A-Za-z0-9_-]+)\/content\/parts\/@\.id==([0-9.]+)\//);
-    if (m) (byMsg.get(m[1]) || byMsg.set(m[1], []).get(m[1])).push([u, m[2]]);
-  }
-  for (const [id, list] of byMsg) {
-    const size = state.messages.find(x => x.id === id)?.size || currentBody?.message?.size || 0;
-    if (!size || size > RAW_FALLBACK_MAX) continue;
-    try {
-      const parsed = await viewer.parsedMessage(id);
-      for (const [u, pid] of list) {
-        try {
-          const { bytes } = extract(parsed, pid), type = sniffImage(bytes);
-          if (!type) continue;
-          remember(partCache, u, await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(new Blob([bytes], { type })); }));
-        } catch { /* part missing or undecodable: stays broken */ }
-      }
-    } catch { /* source unavailable */ }
-  }
 }
 
 // ---------- contact cards ----------
@@ -1057,7 +999,7 @@ async function openCard(anchor, email, name) {
     else if (b.dataset.c === "search") { closeCard(); findFrom(email); }
     else if (b.dataset.c === "copy") { await navigator.clipboard.writeText(email).catch(() => {}); b.textContent = "Copied"; }
   };
-  const q = personQuery(email);
+  const q = api.queries.person(email);
   let res;
   try { res = await api.search(q, null, 5, 0, true); } catch { res = { messages: [] }; }
   if (cardFor !== email || seq !== cardSeq) return;
@@ -1093,15 +1035,14 @@ async function goToMessage(m, email) {
   if (folderType(state.byId.get(fid)) === "DRAFT") editDraft(i); else open(i);
 }
 
-// Only address characters reach the query: quotes, parentheses and backslashes would end the term.
+// Only address characters reach the search box: quotes, parentheses and backslashes would end the term.
 const bareAddress = email => String(email).replace(/["()\\\s]/g, "");
-const personQuery = email => { const e = bareAddress(email); return `(from:("${e}") OR to:("${e}"))`; };
 // All mail from (or to) one address, in every folder.
 const findFrom = (email, field = "from") => doSearch(`${field}:${bareAddress(email)}`, true);
 async function searchPerson(email) {
   leaveView();
   state.prevView = state.view;
-  state.view = { kind: "search", folderId: null, term: email, raw: personQuery(email) };
+  state.view = { kind: "search", folderId: null, term: email, raw: api.queries.person(email) };
   $("search").value = email;
   updateScopeChip();
   renderFolders();
@@ -1109,34 +1050,11 @@ async function searchPerson(email) {
   $("list").focus();
 }
 
-// ---------- attachment previews ----------
-// Cards under the header: a thumbnail for images and PDFs (Yahoo renders those server-side,
-// behind the session cookies, so the page fetches them), a type tile for everything else.
-const thumbCache = new Map();
-
-async function thumbFor(a) {
-  const key = a.thumbnailUrl;
-  if (thumbCache.has(key)) return thumbCache.get(key);
-  let url = key.replace(/&amp;/g, "&");
-  if (!/[?&]size=/.test(url)) url += (url.includes("?") ? "&" : "?") + "size=240w";
-  const p = (async () => {
-    try {
-      const resp = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(30000) });
-      if (!resp.ok) return null;
-      const blob = await resp.blob();
-      if (!/^image\//.test(blob.type)) return null;
-      return await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
-    } catch { return null; }
-  })();
-  remember(thumbCache, key, p);
-  p.then(v => { if (v === null) setTimeout(() => { if (thumbCache.get(key) === p) thumbCache.delete(key); }, RETRY_FAILED); });
-  return p;
-}
-
 // look: "light" (as written), "dark" (declared colours darkened, see darken.js) or "dim" (as
 // written, at 90% brightness so a white message does not glare in a dark app).
+// Images come only from where the provider allows (api.IMAGE_SRC) and data: URLs.
 function bodyDoc(html, images, look = "light") {
-  const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src ${images ? "https://*.yusercontent.com data:" : "'none'"};`;
+  const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src ${images ? `${api.IMAGE_SRC} data:` : "'none'"};`;
   const dark = look === "dark";
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">` +
     `<style>body{margin:12px 16px;font:14px/1.45 -apple-system,"Segoe UI",system-ui,sans-serif;color:${dark ? DARK.fg : "#111"};word-wrap:break-word}` +
@@ -1209,7 +1127,7 @@ function showReaderError(e, what) {
 // The frame runs no scripts (no allow-scripts, and its CSP has no script-src) but shares the
 // app's origin, so the app hears keys pressed while the message has focus: shortcuts work there
 // as anywhere else, and the keys that scroll the message stay with it. Its images are limited to
-// Yahoo's image proxy and data: URLs, so mail cannot make a request that carries Yahoo cookies.
+// the provider's image hosts and data: URLs, so mail cannot make a request that carries session cookies.
 const READER_SANDBOX = "allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "]);
 function setFrame(doc, bg = "#fff") {
@@ -1254,7 +1172,7 @@ async function renderMessage(m, r, how = "user") {
   const hasImg = /<img\b|url\(|\bbackground\s*=|<image\b|\bposter\s*=|image-set\(/i.test(r.html);
   $("r-images").classList.toggle("hidden", !hasImg || auto);
   viewer.renderStrip(r.message, r.attachments, id => state.openId === id);
-  if (auto) { const inlined = await inlineYahooParts(r.html, r.message); if (state.openId !== m.id) return; r.html = inlined; }
+  if (auto) { const inlined = await inlineImages(r.html, r); if (state.openId !== m.id) return; r.html = inlined; }
   showBody(auto);
   status(plainSubject(h.subject).slice(0, 60), r.ms);
   clearTimeout(markReadTimer);
@@ -1276,7 +1194,7 @@ async function renderMessage(m, r, how = "user") {
 async function loadImages() {
   if (!currentBody) return;
   const id = state.openId;
-  currentBody.html = await inlineYahooParts(currentBody.html, currentBody.message);
+  currentBody.html = await inlineImages(currentBody.html, currentBody);
   if (state.openId === id) { showBody(true); $("r-images").classList.add("hidden"); }
 }
 
@@ -1310,7 +1228,7 @@ async function startCompose(mode) {
   try {
     if (mode === "new") { await compose.open({ mode, myEmail: me }); return; }
     status("preparing...");
-    const html = await inlineYahooParts(body.html, body.message);
+    const html = await inlineImages(body.html, body);
     if (seq !== composeSeq) return;
     body.html = html;
     await compose.open({ mode, message: body.message, body, images, myEmail: me });
@@ -1327,19 +1245,18 @@ async function editDraft(i) {
   try { r = await api.body(m.id); } catch (e) { if (api.isGone(e)) messageGone(m.id); else handleError(e, "draft"); return; }
   if (seq !== composeSeq) return;
   // Each save replaces the draft, so its inline images and attachments must travel again with
-  // it: images as embedded data, attachments as files cut out of its source. If they cannot be
-  // loaded the draft stays closed, so a save cannot strip them.
-  r.html = await inlineYahooParts(r.html, r.message);
+  // it: images as embedded data, attachments as files fetched from the provider. If they cannot
+  // be loaded the draft stays closed, so a save cannot strip them.
+  r.html = await inlineImages(r.html, r);
   const atts = r.attachments.filter(a => a.disposition !== "inline" && a.partId);
   let files = [];
   if (atts.length) {
     status(`loading the draft's ${plural(atts.length, "attachment")}...`);
     try {
-      const parsed = await viewer.parsedMessage(m.id);
-      files = atts.map(a => {
-        const x = extract(parsed, a.partId, a.filename);
+      files = await Promise.all(atts.map(async a => {
+        const x = await api.partBytes(m.id, a);
         return new File([x.bytes], a.filename || x.filename || "attachment", { type: x.type || "application/octet-stream" });
-      });
+      }));
     } catch (e) { notify("Could not load the draft's attachments, so it was not opened (it is unchanged).", { detail: e.message, err: e, what: "draft" }); return; }
   }
   if (seq !== composeSeq) return;
@@ -1401,16 +1318,15 @@ const imagesFor = message => currentBody && message.id === currentBody.message.i
 
 // Printed messages show remote images only when the reader would. The print page enforces that
 // with its own image policy (print.js); this removes what that policy would block anyway, so the
-// page shows no broken images. An image still addressed to Yahoo's mail hosts (a part that could
-// not be inlined) is always dropped.
+// page shows no broken images. An image that still refers to a part of the message (one that
+// could not be inlined) is always dropped.
 function printableImages(html, allowed) {
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   for (const img of tpl.content.querySelectorAll("img")) {
     const src = img.getAttribute("src") || "";
     if (src.startsWith("data:")) { img.removeAttribute("srcset"); continue; }
-    let host = ""; try { host = new URL(src).hostname; } catch { /* not a URL */ }
-    if (!allowed || /(^|\.)mail\.yahoo\.com$/i.test(host)) img.remove(); else img.removeAttribute("srcset");
+    if (!allowed || api.isStrayImage(src)) img.remove(); else img.removeAttribute("srcset");
   }
   if (!allowed) {
     for (const el of tpl.content.querySelectorAll("[background]")) el.removeAttribute("background");
@@ -1430,7 +1346,7 @@ async function printMessages() {
     if (currentBody && currentBody.message.id === id) r = currentBody;
     else { try { r = await api.body(id); r.html = cleanHtml(r.html); } catch (e) { handleError(e, "print"); return; } }
     const images = imagesFor(r.message);
-    messages.push({ headers: r.message.headers, attachments: r.attachments.filter(a => a.disposition !== "inline").map(a => a.filename), html: printableImages(await inlineYahooParts(r.html, r.message), images), images });
+    messages.push({ headers: r.message.headers, attachments: r.attachments.filter(a => a.disposition !== "inline").map(a => a.filename), html: printableImages(await inlineImages(r.html, r), images), images });
   }
   const key = `print:${Date.now()}`;
   // The hand-off goes through session storage, whose quota a large selection with images can pass.
@@ -1610,8 +1526,10 @@ async function doMove(ids, folderId, verb = "move") {
   const moving = origins.filter(o => o.from !== dest.id);
   if (!moving.length) { status(`already in ${folderName(dest)}`); return; }
   const openWas = state.openId;
+  // the folder each message is shown in, for a provider whose move depends on it (Gmail's labels)
+  const from = Object.fromEntries(moving.filter(o => o.from != null).map(o => [o.id, o.from]));
   try {
-    const r = await api.move(moving.map(o => o.id), dest.id);
+    const r = await api.move(moving.map(o => o.id), dest.id, { from });
     const okSet = new Set(r.ok);
     const done = moving.filter(o => okSet.has(o.id));
     for (const o of done) { bumpFolder(o.from, -1, o.unread ? -1 : 0); bumpFolder(dest.id, 1, o.unread ? 1 : 0); }
@@ -1626,18 +1544,22 @@ async function doMove(ids, folderId, verb = "move") {
       spam: [`mark ${n} as spam`, `marked ${n} as spam`], notspam: [`mark ${n} not spam`, `marked ${n} not spam, moved to Inbox`] }[verb];
     status(words[1], r.ms); partial(r, verb);
     const known = done.filter(o => o.from);
+    // A provider that can take back exactly what its move changed says how (undo); otherwise each
+    // message moves back to the folder it came from. A redo's own answer undoes the redo.
+    let last = r;
     pushUndo({ label: words[0], reopen: openWas && okSet.has(openWas) ? openWas : null, count: done.length,
       undo: async () => {
+        if (last.undo) return last.undo();
         const out = [];
         for (const [from, g] of groupBy(known.map(o => [o.from, o.id]))) out.push(await api.move(g, from));
         if (known.length < done.length) notify(`${done.length - known.length} message(s) had no known origin folder and stayed in ${dest.name}`, { info: true });
         return out;
       },
-      redo: () => api.move(done.map(o => o.id), dest.id) });
+      redo: async () => (last = await api.move(done.map(o => o.id), dest.id, { from })) });
   } catch (e) { handleError(e, verb); }
 }
 
-// Yahoo's Spam button is a move to the Bulk folder (its filter learns from the move); Not spam moves to Inbox.
+// Spam is a move to the spam folder (the provider's filter learns from the move); Not spam moves to Inbox.
 const inSpamView = () => state.view.kind === "folder" && folderType(state.byId.get(state.view.folderId)) === "BULK";
 async function doSpam(ids) {
   const msgs = byIds(ids);
@@ -1829,16 +1751,18 @@ async function openFolder(id) {
 }
 
 const STARRED = "starred";
-const STARRED_Q = "is:flagged -folderType:(SYNC)-folderType:(INVISIBLE)"; // api.search adds the Spam and Trash exclusion
+const STARRED_Q = api.queries.starred();
 const STARRED_MAX = 500;
 
-// Yahoo reports no total for a search, so the count is the length of the starred list itself.
+// A search reports no total, so the count is the length of the starred list itself.
 let starredCounting = null;
 function refreshStarredCount() {
   if (starredCounting) { starredCounting.again = true; return; }
   starredCounting = { again: false };
-  api.search(STARRED_Q, null, STARRED_MAX, 0, true)
-    .then(r => { state.starredCount = r.messages.length; updateFolderCounts(); })
+  // a provider that keeps the count itself (Gmail) answers it exactly; otherwise it is a search, capped
+  const counted = api.starredCount ? api.starredCount().then(n => ({ n, exact: true })) : api.search(STARRED_Q, null, STARRED_MAX, 0, true).then(r => ({ n: r.messages.length, exact: false }));
+  counted
+    .then(r => { state.starredCount = r.n; state.starredExact = r.exact; updateFolderCounts(); })
     .catch(() => {})
     .finally(() => { const again = starredCounting.again; starredCounting = null; if (again) refreshStarredCount(); });
 }
@@ -1885,7 +1809,7 @@ async function doSearch(term, everywhere = false) {
   term = term.trim();
   if (!term) return;
   let ast;
-  try { ast = parse(term); check(ast); } catch (e) { notify(`Could not search: ${e.message}.`); return; }
+  try { ast = parse(term); check(ast, api.dialect); } catch (e) { notify(`Could not search: ${e.message}.`); return; }
   if (!ast) { status("nothing to search for"); return; }
   const scope = everywhere || scopeOff ? null : scopeOfView();
   // a search from a search returns where the first one came from; Starred is a place of its own
@@ -2135,6 +2059,20 @@ function wireSettings() {
   };
   $("density").onchange = () => { settings.rowPct = Math.min(150, Math.max(80, Math.round((Number($("density").value) || 100) / 5) * 5)); applySettings(); saveSettings(); };
   $("settings-close").onclick = () => openSettings(false);
+  // A provider the extension signs in to itself (Gmail) can be signed out of here. The address
+  // book goes with the sign-in, and the page loads afresh, so nothing of the mailbox stays in
+  // memory; the sign-in panel then asks again.
+  if (api.signOut) {
+    $("signout").classList.remove("hidden");
+    $("signout").onclick = async () => {
+      openSettings(false);
+      if (pendingSends.length) { status("not signed out: a message is still waiting to be sent"); return; }
+      if (!(await compose.close(true))) return;
+      try { await api.signOut(); } catch (e) { handleError(e, "sign out"); return; }
+      await contacts.clear().catch(() => {});
+      location.reload();
+    };
+  }
   wireAddressBook();
   $("settings-reset").onclick = () => { Object.assign(settings, { folderW: DEFAULTS.folderW, listW: DEFAULTS.listW, listH: DEFAULTS.listH }); applySettings(); saveSettings(); };
   $("settings").onclick = e => { if (e.target.id === "settings") openSettings(false); };
@@ -2193,7 +2131,7 @@ async function poll() {
 // Settings says so and the gear gets a dot.
 async function checkUpdate() {
   const have = chrome.runtime.getManifest().version, note = $("update-note");
-  $("app-version").textContent = `Baltazar Mail ${have}`;
+  $("app-version").textContent = `${APP} ${have}`;
   if (!await loadedFromZip()) return;
   const v = await update.latest().catch(() => null);
   const avail = !!v && update.newer(v, have);
@@ -2206,12 +2144,25 @@ async function checkUpdate() {
 }
 
 // A release ZIP is loaded with "Load unpacked" and never updates itself, so only then is GitHub
-// asked. A store install is updated by the browser and contacts nothing but Yahoo.
+// asked. A store install is updated by the browser and contacts nothing but the mail service.
 async function loadedFromZip() {
   try { return (await chrome.management.getSelf()).installType === "development"; } catch { return false; }
 }
 
 // ---------- startup ----------
+// The sign-in panel, worded by the provider: what is missing, where to sign in, and its button.
+function fillSignIn() {
+  const s = api.PROVIDER.signIn;
+  $("signin-title").textContent = APP;
+  $("signin-text").textContent = s.text;
+  const link = $("signin-link");
+  link.classList.toggle("hidden", !s.link);
+  if (s.link) { link.href = s.link.href; link.textContent = s.link.label; }
+  $("signin-then").textContent = s.link ? ", then " : "";
+  $("retry").textContent = s.button;
+  $("signin-end").textContent = s.link ? "." : "";
+}
+
 function showSignIn() {
   state.signedIn = false;
   startPolling();
@@ -2221,8 +2172,8 @@ function showSignIn() {
   $("app").classList.add("hidden");
 }
 
-// The mailbox could not be loaded (offline, Yahoo down): the reason is shown on a page of its own,
-// since the app and its notice bar are hidden, and loading is tried again by itself.
+// The mailbox could not be loaded (offline, the service down): the reason is shown on a page of
+// its own, since the app and its notice bar are hidden, and loading is tried again by itself.
 let startRetry = null, startReport = "", starting = false;
 function showStartError(e) {
   console.error("start", e);
@@ -2258,6 +2209,8 @@ async function startUp() {
   try {
     const s = await api.bootstrap();
     $("account").textContent = s.email;
+    // the address book belongs to one account; another one signed in starts it afresh
+    if (s.email) await contacts.useAccount(s.email).catch(() => {});
     $("app").classList.remove("hidden");
     await loadFolders();
     state.signedIn = true;
@@ -2287,7 +2240,10 @@ async function syncContacts(full = false) {
 
 document.addEventListener("keydown", onKey);
 macLabels();
-$("retry").onclick = () => api.bootstrap(true).then(start, start);
+document.title = APP;
+$("brand").textContent = APP;
+fillSignIn();
+$("retry").onclick = () => api.signIn().then(start, start);
 $("fail-retry").onclick = () => start();
 $("fail-copy").onclick = () => copyReport(startReport, $("fail-copy"));
 $("folder-filter").oninput = () => { state.kbFolder = -1; renderFolders(); };
@@ -2296,7 +2252,7 @@ wireSplitters();
 window.addEventListener("resize", () => applyLayout());
 wireMovePicker();
 wireContactCards();
-viewer.init({ thumb: thumbFor, raw: api.rawMessage, docPages: api.docPages, cleanHtml, status });
+viewer.init({ thumb: api.thumbnail, bytes: api.partBytes, docPages: api.docPages, extractText: api.extractText, originalUrl: api.originalUrl, cleanHtml, status, providerName: api.PROVIDER.name });
 $("toolbar").onclick = e => { const b = e.target.closest("button[data-act]"); if (b && !b.disabled) runAction(b.dataset.act); };
 $("r-images").onclick = loadImages;
 $("r-print").onclick = printMessages;

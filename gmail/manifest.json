@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Baltazar Mail for Gmail",
+  "description": "A fast, ad-free client for Gmail that signs in with your Google account. Not affiliated with Google.",
+  "minimum_chrome_version": "147",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "Open Baltazar Mail for Gmail"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "host_permissions": [
+    "https://gmail.googleapis.com/*",
+    "https://oauth2.googleapis.com/*"
+  ],
+  "permissions": [
+    "storage",
+    "identity"
+  ],
+  "oauth2": {
+    "client_id": "CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://mail.google.com/"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src blob:; font-src 'self' data:; connect-src 'self' https://gmail.googleapis.com https://oauth2.googleapis.com https://api.github.com; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'"
+  },
+  "sandbox": {
+    "pages": [
+      "render.html"
+    ]
+  }
+}

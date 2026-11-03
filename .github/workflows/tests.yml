@@ -1,6 +1,7 @@
-# All test suites: the unit tests and the bundled-library hashes, then the extension itself in
-# Playwright's Chromium against a mocked Yahoo (smoke.js, runtime.js). Runs on every push to main
-# and every pull request, before every release, and from the Actions tab (Run workflow).
+# All test suites: the unit tests and the bundled-library hashes, then the built Yahoo extension in
+# Playwright's Chromium against a mocked Yahoo (smoke.js, yahoo-runtime.js) and the built Gmail
+# extension against a mocked Gmail (gmail-runtime.js). Each suite builds what it tests. Runs on
+# every push to main and every pull request, before every release, and from the Actions tab.
 name: Tests
 
 on:
@@ -22,8 +23,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # The tests import ext/*.js as ES modules without a package.json, which needs Node's
-      # module-syntax detection (Node 22.7 and later).
+      # The tests import ext/*.js and the built adapters as ES modules without a package.json,
+      # which needs Node's module-syntax detection (Node 22.7 and later).
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -49,5 +50,8 @@ jobs:
       - name: Smoke test
         run: node tools/smoke.js
 
-      - name: Runtime test (the real extension)
-        run: node tools/runtime.js
+      - name: Yahoo runtime test (the built Yahoo extension)
+        run: node tools/yahoo-runtime.js
+
+      - name: Gmail runtime test (the built Gmail extension)
+        run: node tools/gmail-runtime.js

@@ -133,7 +133,7 @@
     show(0);
   }
 
-  // ---------- Pages from Yahoo's document converter ----------
+  // ---------- Pages from the provider's document converter ----------
   const decodeEntities = s => { const t = document.createElement("textarea"); t.innerHTML = s; return t.value; };
   let pageState = null;
 
@@ -151,9 +151,9 @@
     }
   }
 
-  function renderPages({ pages, total }) {
+  function renderPages({ pages, total, provider }) {
     root.className = "pages";
-    root.innerHTML = note("Converted by Yahoo. Download for the original.") + `<div class="page-list"></div><div class="more"></div>`;
+    root.innerHTML = note(`Converted by ${provider || "the mail service"}. Download for the original.`) + `<div class="page-list"></div><div class="more"></div>`;
     pageState = { list: root.querySelector(".page-list"), more: root.querySelector(".more"), next: pages.length + 1, total, busy: false };
     post({ type: "meta", text: `${total} page${total === 1 ? "" : "s"}` });
     addPages(pages);
@@ -193,7 +193,7 @@
     return rows;
   }
 
-  function renderText({ text, ext, source, size }) {
+  function renderText({ text, ext, source, size, provider = "the mail service" }) {
     root.className = "";
     if (ext === "csv" || ext === "tsv") {
       const first = text.split(/\r?\n/, 1)[0];
@@ -204,8 +204,8 @@
       return;
     }
     if (ext === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch {} }
-    const label = source === "extracted" ? "Text extracted by Yahoo; layout, images and formatting are not shown. Download for the original."
-      : source === "stored" ? "Text as stored by Yahoo."
+    const label = source === "extracted" ? `Text extracted by ${provider}; layout, images and formatting are not shown. Download for the original.`
+      : source === "stored" ? `Text as stored by ${provider}.`
       : source === "hex" ? `${Number(size) || 0} bytes, shown as offset, hex and ASCII.` : "";
     root.innerHTML = (label ? note(label) : "") + "<pre></pre>";
     root.querySelector("pre").textContent = text || "(no text)";

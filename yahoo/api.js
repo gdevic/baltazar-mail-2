@@ -1,5 +1,11 @@
 // Protocol adapter for Yahoo Mail's ws/v3 batch API. Every endpoint string and payload shape
-// lives here; nothing else in the client knows the wire format. See yahoo-v3.md.
+// lives here; nothing else in the client knows the wire format. See docs/yahoo-api.md.
+// The Gmail extension's adapter (gmail/api.js) has the same exports.
+
+import { listParts, extract } from "./mime.js";
+import { sniffImage } from "./bytes.js";
+import { remember, failure, freshFailure, recent, RETRY_FAILED } from "./cache.js";
+import { clean, isoDate } from "./query.js";
 
 const ORIGIN = "https://mail.yahoo.com";
 const BATCH = ORIGIN + "/c/ws/v3/batch";
@@ -7,6 +13,63 @@ const JWS = "https://apis.mail.yahoo.com";
 const LIST_FILTER = "-folderType:(SYNC)-folderType:(INVISIBLE)";
 // Searches not limited to chosen folders skip Spam and Trash; searching inside those folders still reaches them.
 const ALL_MAIL = "-folderType:(TRASH)-folderType:(BULK)";
+
+// What the shared client shows and limits for this provider. name is used in sentences
+// ("Yahoo could not be reached"); signIn fills the sign-in panel.
+export const PROVIDER = {
+  id: "yahoo", name: "Yahoo",
+  signIn: { text: "No Yahoo Mail session found in this browser.", link: { href: "https://mail.yahoo.com/", label: "Sign in at mail.yahoo.com" }, button: "retry" },
+};
+// Where the reader and the print page may load message images from: Yahoo's image proxy.
+export const IMAGE_SRC = "https://*.yusercontent.com";
+// messageBytes: attachments per message; scanMax: rows per folder a full address-book scan reads.
+export const LIMITS = { messageBytes: 25 * 1048576, scanMax: Infinity };
+
+// An image still addressed to Yahoo's mail hosts (a part that could not be inlined) would show
+// recipients the mailbox id and could not load for them anyway; outgoing mail and print drop it.
+export function isStrayImage(src) {
+  let host = ""; try { host = new URL(src).hostname; } catch { return false; }
+  return /(^|\.)mail\.yahoo\.com$/i.test(host);
+}
+
+// Only address characters reach a query: quotes, parentheses and backslashes would end the term.
+const bareAddress = email => String(email).replace(/["()\\\s]/g, "");
+// Queries the client runs by name, as opaque strings for query() and search(raw). Starred spans
+// every folder; search() adds the Spam and Trash exclusion.
+export const queries = {
+  starred: (unreadOnly = false) => `is:flagged ${LIST_FILTER}${unreadOnly ? " is:unread" : ""}`,
+  unreadIn: folderId => `folderId:${folderId} is:unread`,
+  person: email => { const e = bareAddress(email); return `(from:("${e}") OR to:("${e}"))`; },
+};
+
+// ---------- search terms ----------
+// Yahoo atom for a term, or for its negation when Yahoo can negate it; null when it cannot.
+// query.js compiles the user's search with this dialect (see there for the language).
+function atom(term, neg = false) {
+  const v = clean(term.value), lv = v.toLowerCase();
+  switch (term.field) {
+    case null: return neg ? null : (/[\s:]/.test(v) ? `keyword:"${v}"` : `keyword:${v}`);
+    case "from": return neg ? null : `from:("${v}")`;
+    case "to": return neg ? null : `to:("${v}")`;
+    case "subject": return neg ? null : `subject:"${v}"`;
+    case "has":
+      if (/^attachments?$/.test(lv)) return `${neg ? "-" : ""}has:attachment`;
+      throw new Error(`has:${v} is not a search term; has:attachment is`);
+    case "is":
+      if (lv === "starred" || lv === "flagged") return `${neg ? "-" : ""}is:flagged`;
+      if (lv === "unread") return neg ? "is:read" : "is:unread";
+      if (lv === "read") return neg ? "is:unread" : "is:read";
+      throw new Error(`is:${v} is not a search term; is:starred, is:unread and is:read are`);
+    case "after": case "before": {
+      const d = isoDate(v);
+      if (!d) throw new Error(`${term.field}:${v} is not a date; write it as YYYY-MM-DD`);
+      const f = (term.field === "after") !== neg ? "after" : "before";
+      return `${f}:${d}`;
+    }
+  }
+  return null;
+}
+export const dialect = { atom };
 
 export class NotSignedIn extends Error {
   constructor() { super("Not signed in to Yahoo Mail"); this.name = "NotSignedIn"; }
@@ -72,11 +135,13 @@ export async function bootstrap(force = false) {
   if (!force && session) return session;
   if (signingIn && (signingInForced || !force)) return signingIn;
   if (signingIn) await signingIn.catch(() => {});
-  const p = signIn(force).finally(() => { if (signingIn === p) signingIn = null; });
+  const p = readSession(force).finally(() => { if (signingIn === p) signingIn = null; });
   signingIn = p; signingInForced = force;
   return p;
 }
-async function signIn(force) {
+// The sign-in panel's button: a fresh read of the session page.
+export const signIn = () => bootstrap(true);
+async function readSession(force) {
   if (!force) {
     const stored = (await chrome.storage.session.get("ymSession")).ymSession;
     if (stored && Date.now() - stored.at < 6 * 3600e3) return (session = stored);
@@ -220,6 +285,121 @@ export async function rawMessage(msgId, retry = true) {
   return new Uint8Array(body);
 }
 
+// ---------- attachment bytes, thumbnails, inline images ----------
+// Attachment bytes are cut out of the message's raw source: one fetch per message, shared by its
+// attachments and by the inline images Yahoo cannot render. The three newest sources stay parsed.
+const rawCache = new Map();      // msgId -> Promise<parsed MIME>
+function parsedMessage(id) {
+  if (!rawCache.has(id)) {
+    rawCache.set(id, rawMessage(id).then(listParts));
+    while (rawCache.size > 3) rawCache.delete(rawCache.keys().next().value);
+  }
+  const p = rawCache.get(id);
+  p.catch(() => rawCache.delete(id));
+  return p;
+}
+// { bytes, type, filename } of one attachment of a message, by its part id and name.
+export async function partBytes(msgId, a) {
+  return extract(await parsedMessage(msgId), a.partId, a.filename);
+}
+
+// Yahoo's download link, for the browser to follow when the bytes could not be fetched here.
+export const originalUrl = a => /^https:\/\//i.test(a?.downloadUrl || "") ? a.downloadUrl.replace(/&amp;/g, "&") : null;
+
+// Yahoo's text extraction of an attachment, for formats with no renderer and no converter page.
+export async function extractText(a) {
+  if (!a.textExtractionUrl) throw new Error("no text extraction available");
+  const resp = await fetch(a.textExtractionUrl.replace(/&amp;/g, "&"), { credentials: "include", signal: AbortSignal.timeout(30000) });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const j = await resp.json();
+  const t = j?.result?.textExtractResult;
+  if (typeof t !== "string") throw new Error("no text in response");
+  return t;
+}
+
+const dataUrl = blob => new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
+
+// A thumbnail of an image attachment as a data: URL, or null. Yahoo renders them server-side
+// behind the session cookies, so the page fetches them; a failure is tried again after a minute.
+const thumbCache = new Map();
+export async function thumbnail(msgId, a) {
+  const key = a.thumbnailUrl;
+  if (!key) return null;
+  if (thumbCache.has(key)) return thumbCache.get(key);
+  let url = key.replace(/&amp;/g, "&");
+  if (!/[?&]size=/.test(url)) url += (url.includes("?") ? "&" : "?") + "size=240w";
+  const p = (async () => {
+    try {
+      const resp = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(30000) });
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      if (!/^image\//.test(blob.type)) return null;
+      return await dataUrl(blob);
+    } catch { return null; }
+  })();
+  remember(thumbCache, key, p);
+  p.then(v => { if (v === null) setTimeout(() => { if (thumbCache.get(key) === p) thumbCache.delete(key); }, RETRY_FAILED); });
+  return p;
+}
+
+// Inline images (cid parts) are thumbnails of message parts in this mailbox, served by
+// cloud-apis.mail.yahoo.com with the session cookies, which the sandboxed frame cannot send. They
+// are fetched here and handed to the frame as data: URLs. Only real <img> sources with exactly that
+// address shape in the user's own mailbox are fetched, and only image responses are kept, so a
+// message cannot make the extension request any other Yahoo address with the user's session.
+// Image caches keep the newest entries up to a limit, so a long session does not hold every image
+// it ever showed, and a failure is remembered for a minute, then tried again.
+const PART_PATH = /^\/ws\/v3\/mailboxes\/@\.id==([A-Za-z0-9_-]+)\/messages\/@\.id==([A-Za-z0-9_-]+)\/content\/parts\/@\.id==([0-9.]+)\/thumbnail(?:&[A-Za-z0-9_.~%=-]+)*$/;
+function partUrl(u) {
+  try {
+    const url = new URL(u);
+    const m = url.pathname.match(PART_PATH);
+    if (!(url.protocol === "https:" && url.host === "cloud-apis.mail.yahoo.com" && !url.username && !url.password && m && /^(\?[A-Za-z0-9_.~%=&-]*)?$/.test(url.search) && !url.hash)) return null;
+    return { mailboxId: m[1], msgId: m[2], partId: m[3] };
+  } catch { return null; }
+}
+// Whether an image source has the shape of an inline part reference (the client asks
+// inlineSource only for these).
+export const isInlineRef = src => !!partUrl(src);
+
+const partCache = new Map();       // url -> data: URL, or failure()
+const fromSource = new Map();      // url -> time it was last tried from the source
+const RAW_FALLBACK_MAX = 10 << 20;
+// One inline image of a body() result as a data: URL, or null when it is not a part of that
+// message or could not be fetched. Yahoo cannot render some parts (a malformed type such as
+// "image/jpeg;base64" gives EP-5001); those are cut out of the message's own source, as
+// attachments are, and the format comes from the bytes, so anything that is not an image is dropped.
+export async function inlineSource(src, body) {
+  const message = body?.message;
+  const ref = partUrl(src);
+  const ids = [message?.id, message?.immutableid].filter(Boolean).map(String);
+  if (!ref || ref.mailboxId !== (await bootstrap()).mailboxId || !ids.includes(ref.msgId)) return null;
+  const c = partCache.get(src);
+  if (typeof c === "string") return c;
+  if (!freshFailure(c)) {
+    try {
+      const resp = await fetch(src, { credentials: "include", signal: AbortSignal.timeout(30000) });
+      if (!resp.ok) throw new Error(resp.status);
+      const blob = await resp.blob();
+      if (!/^image\/(png|jpeg|gif|webp|bmp|avif)$/i.test(blob.type)) throw new Error(blob.type || "untyped");
+      const d = await dataUrl(blob);
+      remember(partCache, src, d);
+      return d;
+    } catch { remember(partCache, src, failure()); }
+  }
+  if (recent(fromSource.get(src))) return null;
+  remember(fromSource, src, Date.now());
+  const size = message?.size || 0;
+  if (!size || size > RAW_FALLBACK_MAX) return null;
+  try {
+    const { bytes } = extract(await parsedMessage(ref.msgId), ref.partId), type = sniffImage(bytes);
+    if (!type) return null;
+    const d = await dataUrl(new Blob([bytes], { type }));
+    remember(partCache, src, d);
+    return d;
+  } catch { return null; }
+}
+
 // Yahoo's document converter, for formats with no renderer here. PDF pages come back as JPEG
 // images, Office documents as HTML plus CSS, spreadsheets one sheet per page. Pages are 1-based.
 // code 800 is success; a page with statuscode 700 is ready.
@@ -344,13 +524,15 @@ async function follow(task, what) {
   throw new ApiError(`${what} is taking too long; Yahoo is still working on it`);
 }
 // Marking a folder read is a background task on Yahoo's side (HTTP 202 and a task id), followed
-// until it completes, as Yahoo's client does.
+// until it completes, as Yahoo's client does. changed: how many messages the task reports having
+// changed, or null when there was no task to follow.
 export async function markFolderRead(id, unread, acctId = "1") {
   checkFolder(id);
   if (!ACCT_ID.test(String(acctId))) throw new ApiError("refusing malformed account id");
   const n = Math.max(1, Math.min(100000, Number(unread) || 0));
   const r = await one("messages.readFlagUpdate", { id: "UnifiedUpdateMessage_0", method: "POST", uri: `${q(`folderId:${id} count:${n} offset:0 is:unread acctId:${acctId}`)}&async=true`, payloadType: "embedded", payload: { message: { flags: { read: true } } } });
-  return { ...r, task: await follow(r.result?.task, "marking the folder read") };
+  const task = await follow(r.result?.task, "marking the folder read");
+  return { ...r, changed: task ? (Number(task.completed) || 0) : null };
 }
 
 // ---------- accounts, drafts, send ----------

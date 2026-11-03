@@ -4,7 +4,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..", "ext");
+// The Yahoo build, served over HTTP.
+const ROOT = require("./build.js").build("yahoo");
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".json": "application/json" };
 const server = http.createServer((req, res) => {
   const p = path.normalize(path.join(ROOT, req.url.split("?")[0]));

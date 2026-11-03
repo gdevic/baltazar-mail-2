@@ -1,5 +1,8 @@
 // Address parsing and reply recipients in ext/compose.js. node tools/compose-test.mjs
-import { parseAddrs, replyRecipients, linkTarget } from "../ext/compose.js";
+import { createRequire } from "node:module";
+// ext/compose.js imports the adapter beside it, so it is tested in the built Yahoo extension.
+createRequire(import.meta.url)("./build.js").build("yahoo");
+const { parseAddrs, replyRecipients, linkTarget } = await import("../dist/baltazar-mail-yahoo/compose.js");
 
 let fail = 0;
 const eq = (got, want, what) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g !== w) { fail++; console.log("FAIL", what, "got", g, "want", w); } };

@@ -1,7 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Baltazar Mail",
-  "version": "0.18.0",
+  "name": "Baltazar Mail for Yahoo",
   "description": "A fast, ad-free client for Yahoo Mail that reuses your existing Yahoo sign-in. Not affiliated with Yahoo.",
   "minimum_chrome_version": "147",
   "icons": {
@@ -11,7 +10,7 @@
     "128": "icons/128.png"
   },
   "action": {
-    "default_title": "Open Baltazar Mail"
+    "default_title": "Open Baltazar Mail for Yahoo"
   },
   "background": {
     "service_worker": "background.js",

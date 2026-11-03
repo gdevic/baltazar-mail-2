@@ -1,5 +1,6 @@
 // Print page: receives the messages to print from the main page through chrome.storage.session.
 import { esc, noBidi } from "./text.js";
+import { IMAGE_SRC } from "./api.js";
 const fmt = a => a?.name ? `${a.name} <${a.email}>` : (a?.email || "");
 const fmtList = l => (l || []).map(fmt).join(", ");
 // A message without a usable date prints without the line, not as "Invalid Date".
@@ -12,11 +13,11 @@ const BODY_CSS = ":host{display:block}img{max-width:100%;height:auto}blockquote{
   const job = /^print:\d+$/.test(key) ? (await chrome.storage.session.get(key))[key] : null;
   if (!job) { document.getElementById("info").textContent = "Nothing to print (the job has expired)."; return; }
   chrome.storage.session.remove(key);
-  // The reader's image policy, before any message is added: images from Yahoo's image proxy only
-  // when every message may load them (not one from Spam or Trash), otherwise embedded ones only.
-  // Nothing else, so no style, SVG or media element can request a Yahoo address with the session.
+  // The reader's image policy, before any message is added: images from where the provider allows
+  // only when every message may load them (not one from Spam or Trash), otherwise embedded ones
+  // only. Nothing else, so no style, SVG or media element can request an address with the session.
   const csp = Object.assign(document.createElement("meta"), { httpEquiv: "Content-Security-Policy",
-    content: `img-src data:${job.images ? " https://*.yusercontent.com" : ""}; media-src 'none'` });
+    content: `img-src data:${job.images ? ` ${IMAGE_SRC}` : ""}; media-src 'none'` });
   document.head.prepend(csp);
   const pages = document.getElementById("pages");
   for (const m of job.messages) {

@@ -1,7 +1,12 @@
-// Unit test for ext/query.js against a fake server with Yahoo's measured semantics:
-// keyword terms OR together, field filters AND with them, negated keywords/senders are
+// Unit test for ext/query.js with the Yahoo dialect against a fake server with Yahoo's measured
+// semantics: keyword terms OR together, field filters AND with them, negated keywords/senders are
 // rejected, id:(...) ANDs with everything. node tools/query-test.mjs
-import { parse, nativeQuery, evaluate, describe, CAP } from "../ext/query.js";
+import { parse, nativeQuery as native, evaluate as evaluateWith, describe, CAP } from "../ext/query.js";
+import { createRequire } from "node:module";
+createRequire(import.meta.url)("./build.js").build("yahoo");
+const { dialect } = await import("../dist/baltazar-mail-yahoo/api.js");
+const nativeQuery = ast => native(ast, dialect);
+const evaluate = (ast, run, scope = "") => evaluateWith(ast, run, scope, dialect);
 
 const mail = [
   { id: "m1", from: "alex@x.com", to: "me", subject: "Picture from Oslo", body: "alex picture oslo", date: 10, att: true, flagged: false, read: true },

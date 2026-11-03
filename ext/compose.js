@@ -639,12 +639,9 @@ function extractInline(html, taken = new Set()) {
   releaseImages(doc.body);
   const inline = [];
   let n = 0;
-  // A Yahoo part address that could not be inlined would show recipients the mailbox id, and
-  // could not load for them anyway.
-  for (const img of doc.querySelectorAll("img[src]")) {
-    let host = ""; try { host = new URL(img.getAttribute("src")).hostname; } catch { /* relative or data: */ }
-    if (/(^|\.)mail\.yahoo\.com$/i.test(host)) img.remove();
-  }
+  // An image still referring to a part of the quoted message (one that could not be inlined)
+  // could not load for recipients, and may show them the mailbox's own addresses.
+  for (const img of doc.querySelectorAll("img[src]")) if (api.isStrayImage(img.getAttribute("src"))) img.remove();
   for (const img of doc.querySelectorAll("img[src^='data:']")) {
     const { bytes, mime } = dataImage(img.getAttribute("src")) || {};
     if (!mime) { img.remove(); continue; }
@@ -750,8 +747,14 @@ function withFiles(list, files) {
   }
   return list;
 }
+// Files that would take the message over the provider's size limit are left out, with a notice.
 function addFiles(files) {
-  withFiles(draft.files, files);
+  const have = draft.files.reduce((s, f) => s + f.size, 0) + (draft.refs || []).reduce((s, r) => s + (r.size || 0), 0);
+  const fits = [], over = [];
+  let used = have;
+  for (const f of files) { if (used + f.size <= api.LIMITS.messageBytes) { fits.push(f); used += f.size; } else over.push(f); }
+  if (over.length) warn(`Not attached: ${over.map(f => f.name).join(", ")}. Attachments are limited to ${Math.round(api.LIMITS.messageBytes / 1048576)} MB per message.`);
+  withFiles(draft.files, fits);
   dirty = true; renderFiles();
 }
 function renderFiles() {
@@ -856,15 +859,17 @@ async function saveNow(silent = false) {
   try { d = collect(); } catch (e) { if (!silent) warn(e.message); return e.message; }
   if (!d.draftFolderId) { warn("There is no Drafts folder to save the message in."); return "no Drafts folder"; }
   dirty = false;          // edits made while the save is in flight mark the message again
-  // References to parts of the previous save that Yahoo refuses or drops: saved again, uploading
+  // References to parts of the previous save that the provider refuses or drops: saved again, uploading
   const p = api.saveDraft(d).catch(e => { if (!d.ownRefs) throw e; return { partial: true }; })
     .then(r => r.partial && d.ownRefs ? (forgetStored(mine), api.saveDraft({ ...d, ...uploadAll(mine) })) : r);
   saving = p;
   try {
     const r = await p;
     mine.savedId = r.message?.id || mine.savedId;
+    // the provider may give the draft its own lasting id on the first save (Gmail's draft id)
+    mine.csid = r.message?.csid || mine.csid;
     remember(mine, r.message);
-    recordFormat(d.csid, d.html != null);
+    recordFormat(mine.csid, d.html != null);
     if (draft === mine) { hooks.clearNotice("compose"); hooks.status("draft saved", r.ms); }
     return "";
   } catch (e) {
@@ -893,15 +898,19 @@ async function send() {
   if (!d.subject && !confirm("Send without a subject?")) return;
   const sentId = hooks.folderByType("SENT")?.id;
   if (!sentId || !d.draftFolderId) { warn("Not sent: the Sent or Drafts folder was not found."); return; }
+  const mine = draft;
   const snapshot = { ...draft, d, editorHtml: draft.html ? $("c-editor").innerHTML : null, ownText: draft.html ? null : $("c-text").value };
+  // A save still in flight may give the message its lasting csid and saved id (Gmail's first save
+  // creates the draft); the send and a composer reopened after a cancel take them once it settles.
+  const settle = async () => { await saved(); d.csid = snapshot.csid = mine.csid; snapshot.savedId = mine.savedId; };
   clearInterval(autosaveTimer);
   $("compose").classList.add("hidden"); $("c-editor").innerHTML = ""; $("c-text").value = ""; draft = null; dirty = false;
   hooks.clearNotice("compose");
   hooks.onClose();
   hooks.scheduleSend({
     label: `send "${d.subject || "(no subject)"}" to ${d.to.map(a => a.email).join(", ")}`,
-    run: async () => { await saved(); const r = await api.send(d, sentId).catch(e => { if (e.savedId) snapshot.savedId = e.savedId; throw e; }); forgetFormat(d.csid); contacts.noteSent([...d.to, ...d.cc, ...d.bcc]).catch(() => {}); return r; },
-    restore: () => reopenFrom(snapshot),
+    run: async () => { await settle(); const r = await api.send(d, sentId).catch(e => { if (e.savedId) mine.savedId = snapshot.savedId = e.savedId; throw e; }); forgetFormat(d.csid); contacts.noteSent([...d.to, ...d.cc, ...d.bcc]).catch(() => {}); return r; },
+    restore: async () => { await settle(); return reopenFrom(snapshot); },
   });
 }
 

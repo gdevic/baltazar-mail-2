@@ -1,11 +1,15 @@
-// Mocked Yahoo for the browser suites: launches Chromium with the real extension, answers every
-// Yahoo endpoint the app uses from invented mail, and refuses every other host.
+// Mocked mail services for the browser suites: launches Chromium with the real extension, answers
+// every endpoint the app uses from invented mail, and refuses every other host. launch() builds
+// and loads the Yahoo extension against a mocked Yahoo; launch({ provider: "gmail" }) the Gmail
+// extension against the Gmail of gmail-mock.js.
 const { chromium } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { createGmail } = require("./gmail-mock.js");
+const { build } = require("./build.js");
 
-const EXT = path.join(__dirname, "..", "ext");
+const built = {};   // edition -> its folder in dist/, built once per run
 const now = Math.floor(Date.now() / 1000);
 // Every third message has a file; message 4 has only images built into its body, which are not files.
 // Projects/FPGA (32) carries bidi controls in its names, subjects and filenames.
@@ -34,10 +38,12 @@ const accounts = [{ id: "1", email: "me@yahoo.com", sendingName: "Me Myself", is
 
 
 async function launch(opts = {}) {
+  const provider = opts.provider || "yahoo";
+  const ext = built[provider] ||= build(provider);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "baltazar-mail-profile-"));
   // No host outside the mocks resolves, so nothing can reach the real network.
   const ctx = await chromium.launchPersistentContext(profile, { channel: "chromium", headless: true,
-    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, "--no-proxy-server", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"] });
+    args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, "--no-proxy-server", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"] });
   const sw = ctx.serviceWorkers()[0] || await ctx.waitForEvent("serviceworker");
   const extId = new URL(sw.url()).host;
   // Requests to hosts without a mock are recorded and refused (later routes take precedence).
@@ -201,6 +207,30 @@ async function launch(opts = {}) {
     if (u.includes("/thumb/") && u.includes("size=2048w")) mock.thumbFull = true;
     return route.fulfill({ contentType: "image/png", body: thumbPng });
   });
+  // The Gmail extension: the API answered by gmail-mock.js, with the token the app would have got
+  // from Google planted by signIn() (the sign-in window itself is out of reach of a test, so the
+  // first load shows the sign-in page). Google's sign-in host answers 500, so a flow the app
+  // started on its own would fail at once and be seen.
+  let gmail = null;
+  const signIn = async () => {
+    await page.evaluate(() => chrome.storage.session.set({ gmToken: { access_token: "test", expires: Date.now() + 3600e3, email: "me@gmail.com" } }));
+    await page.reload();
+  };
+  if (provider === "gmail") {
+    const gm = createGmail(opts.gmail);
+    gmail = gm.state;
+    await ctx.route("https://gmail.googleapis.com/**", async route => {
+      const req = route.request();
+      if (mock.offline) return route.abort("internetdisconnected");
+      if (gmail.listDelay && req.url().includes("/messages?")) await new Promise(r => setTimeout(r, gmail.listDelay));
+      const body = req.postDataBuffer()?.toString("latin1") ?? null;
+      const r = gm.respond(req.method(), req.url(), body, req.headers());
+      if (r.text != null) return route.fulfill({ status: r.status, contentType: r.contentType, body: r.text });
+      return route.fulfill({ status: r.status, contentType: "application/json", body: r.json == null ? "" : JSON.stringify(r.json) });
+    });
+    await ctx.route("https://oauth2.googleapis.com/**", route => { gmail.calls.push({ method: route.request().method(), path: new URL(route.request().url()).pathname }); return route.fulfill({ status: 200, body: "" }); });
+    await ctx.route("https://accounts.google.com/**", route => route.fulfill({ status: 500, body: "no sign-in window in a test" }));
+  }
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
@@ -222,7 +252,7 @@ async function launch(opts = {}) {
   page.on("console", onConsole);
   const open = async () => page.goto(`chrome-extension://${extId}/mail.html`);
   const close = async () => { await ctx.close(); fs.rmSync(profile, { recursive: true, force: true }); };
-  return { ctx, page, extId, profile, calls, docCalls, rawCalls, ghCalls, mock, folders, goneElsewhere, errors, cspViolations, unexpectedHosts, open, close, FX, thumbPng };
+  return { ctx, page, extId, profile, calls, docCalls, rawCalls, ghCalls, mock, folders, goneElsewhere, errors, cspViolations, unexpectedHosts, open, close, FX, thumbPng, provider, gmail, signIn };
 }
 
-module.exports = { launch, msg, accounts, now, EXT };
+module.exports = { launch, msg, accounts, now };

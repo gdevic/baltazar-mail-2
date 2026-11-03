@@ -1,5 +1,8 @@
-// Session values and folder records as Yahoo may send them. node tools/api-test.mjs
-import { parseBootstrap, normalizeFolders, isMessageId, saveRequest, TIMEOUTS, Timeout, folders, send, rawMessage, bootstrap, NotSignedIn } from "../ext/api.js";
+// Session values and folder records as Yahoo may send them. node tools/yahoo-test.mjs
+import { createRequire } from "node:module";
+// The adapter imports the shared modules beside it, so it is tested as built.
+createRequire(import.meta.url)("./build.js").build("yahoo");
+const { parseBootstrap, normalizeFolders, isMessageId, saveRequest, TIMEOUTS, Timeout, folders, send, rawMessage, bootstrap, NotSignedIn } = await import("../dist/baltazar-mail-yahoo/api.js");
 
 let fail = 0;
 const ok = (cond, what) => { if (!cond) { fail++; console.log("FAIL", what); } };

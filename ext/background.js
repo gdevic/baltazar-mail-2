@@ -1,4 +1,7 @@
 // Toolbar button opens the client in its own tab, reusing an existing one if present.
+// rules.js holds what the provider's API needs from the service worker besides this.
+import "./rules.js";
+
 const PAGE = chrome.runtime.getURL("mail.html");
 
 chrome.action.onClicked.addListener(async () => {
@@ -16,34 +19,3 @@ chrome.action.onClicked.addListener(async () => {
 chrome.tabs.onRemoved.addListener(async () => {
   if (!(await chrome.tabs.query({ url: PAGE })).length) chrome.action.setIcon({ path: { 16: "icons/16.png", 32: "icons/32.png" } }).catch(() => {});
 });
-
-// The /c/ edge proxy rejects batch calls whose Origin is not mail.yahoo.com (error EP-4010).
-// Rewrite Origin and Referer on this extension's own requests so they match the web client's.
-const RULES = [{
-  id: 1, priority: 1,
-  action: {
-    type: "modifyHeaders",
-    requestHeaders: [
-      { header: "Origin", operation: "set", value: "https://mail.yahoo.com" },
-      { header: "Referer", operation: "set", value: "https://mail.yahoo.com/" },
-    ],
-  },
-  condition: {
-    urlFilter: "||mail.yahoo.com/",
-    initiatorDomains: [chrome.runtime.id],
-    resourceTypes: ["xmlhttprequest"],
-  },
-}];
-
-let installing = null;
-function installRules() {
-  if (!installing) installing = chrome.declarativeNetRequest
-    .updateSessionRules({ removeRuleIds: RULES.map(r => r.id), addRules: RULES })
-    .finally(() => { installing = null; });
-  return installing;
-}
-chrome.runtime.onStartup.addListener(() => installRules());
-chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  if (msg?.type === "ensureRules") { installRules().then(() => reply(true), () => reply(false)); return true; }
-});
-installRules();

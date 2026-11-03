@@ -8,7 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 
-const EXT = path.join(__dirname, "..", "ext");
+const EXT = require("./build.js").build("yahoo");
 const STORE = process.argv.includes("--store");
 const OUT = path.join(__dirname, "..", ...(STORE ? ["store", "screenshots"] : ["docs", "screenshots"]));
 const W = STORE ? 1280 : 1600, H = STORE ? 800 : 900, LIST_W = STORE ? 505 : 560, FOLDER_W = STORE ? 190 : 230;
@@ -367,13 +367,13 @@ function listFor(q) {
       ["promo-small.png", 440, 280, `
         <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
           <img src="${icon}" width="92" height="92">
-          <div style="font-size:36px;font-weight:700;color:#efe9da;letter-spacing:-0.5px">Baltazar Mail</div>
+          <div style="font-size:31px;font-weight:700;color:#efe9da;letter-spacing:-0.5px">Baltazar Mail for Yahoo</div>
           <div style="font-size:16px;color:#d9a441">Fast, ad-free Yahoo Mail client</div>
         </div>`],
       ["promo-large.png", 1400, 560, `
         <div style="position:absolute;left:90px;top:0;bottom:0;width:560px;display:flex;flex-direction:column;justify-content:center">
           <div style="display:flex;align-items:center;gap:22px"><img src="${icon}" width="104" height="104">
-            <div style="font-size:60px;font-weight:700;color:#efe9da;letter-spacing:-1px;line-height:1.05">Baltazar<br>Mail</div></div>
+            <div style="font-size:60px;font-weight:700;color:#efe9da;letter-spacing:-1px;line-height:1.05">Baltazar<br>Mail for Yahoo</div></div>
           <div style="font-size:27px;color:#d9a441;margin:26px 0 22px">Fast, ad-free Yahoo Mail client</div>
           ${["Dark mode that darkens messages too", "Attachments open in place", "No server, no ads, no tracking"].map(t =>
             `<div style="font-size:21px;color:#c9c4b7;margin:6px 0;display:flex;align-items:center;gap:14px"><span style="width:9px;height:9px;border-radius:50%;background:#d9a441"></span>${t}</div>`).join("")}
