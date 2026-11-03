@@ -1,4 +1,4 @@
-# Baltazar Mail
+# Baltazar Mail (experimental)
 
 A fast, ad-free mail client packaged as a Chromium (Edge/Chrome) extension, in two editions that share their code and can be installed side by side:
 
