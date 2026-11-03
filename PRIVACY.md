@@ -37,6 +37,7 @@ The extension's Content Security Policy (in its `manifest.json`) makes the brows
 | Data | Where | Why |
 |---|---|---|
 | Settings: layout, theme, palettes and contrast, text and row size, pane sizes, expanded folders, writing font, size and HTML or plain text, when images load, whether dark mode shows messages in their original colours, and the new-mail check, mark-read and undo-send intervals | the extension's local storage | so your choices persist |
+| When you last looked at the mail tab | the extension's local storage | so a tab that opens in the background shows the new-mail dot for mail that arrived while the browser was closed |
 | The latest release number and when it was checked | the extension's local storage | to ask GitHub once a day, or an hour later after a failed check |
 | For each draft saved here, whether it was written in HTML or plain text (keyed by the draft's id, removed when it is sent or discarded, at most 200 kept) | the extension's local storage | to reopen the draft in the same format |
 | Address book: names, addresses, the last date mail went either way and the last date you wrote to each, and whether you hid it from suggestions, with the address of the account it belongs to | the extension's IndexedDB; started afresh when another account signs in, and cleared by Sign out (Gmail) | address suggestions while writing; built from the headers of your own Inbox and Sent |

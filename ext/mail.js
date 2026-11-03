@@ -591,8 +591,20 @@ let lastUnread = null, newMail = false;
 function noteInbox(unread) {
   if (lastUnread != null && unread > lastUnread && document.visibilityState === "hidden") setNewMail(true);
   lastUnread = unread;
+  if (document.visibilityState === "visible") looked();
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setNewMail(false); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { setNewMail(false); looked(); } });
+
+// The time the tab was last looked at is kept across browser restarts, so a tab that loads in the
+// background (a pinned tab when the browser starts) can put up the dot for unread Inbox mail that
+// arrived while the browser was closed.
+const looked = () => chrome.storage.local.set({ inboxSeen: Date.now() }).catch(() => {});
+async function noteMissed() {
+  if (document.visibilityState !== "hidden") return;
+  const seen = (await chrome.storage.local.get("inboxSeen").catch(() => ({}))).inboxSeen;
+  if (!seen || document.visibilityState !== "hidden" || state.view.folderId !== inboxId()) return;
+  if (state.messages.some(m => !m.flags?.read && (Number(m.headers?.date) * 1000) > seen)) setNewMail(true);
+}
 
 const PLAIN_ICONS = { 16: "icons/16.png", 32: "icons/32.png" };
 async function dottedIcon(size) {
@@ -2216,6 +2228,7 @@ async function startUp() {
     state.signedIn = true;
     startPolling();
     await openFolder(inboxId());
+    noteMissed();
     syncContacts();
   } catch (e) { if (e instanceof api.NotSignedIn) showSignIn(); else showStartError(e); }
   checkUpdate().catch(() => {});
