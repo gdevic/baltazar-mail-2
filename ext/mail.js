@@ -931,7 +931,9 @@ let markReadTimer = null;
 // and SVG <a>, image-map <area>) open in a new tab, since the reader frame cannot navigate.
 // The reader shrinks wide images with height:auto, which would otherwise follow the picture's own
 // shape; an image's width and height attributes set its proportions instead, as mail clients
-// honour them (a 640x1 spacer built from a 1x1 PNG stays one pixel tall, not a 640px square).
+// honour them (a 640x1 spacer built from a 1x1 PNG stays one pixel tall, not a 640px square). A
+// height attribute alone caps the height, so a spacer given its width in CSS stays flat too; a
+// cap, not a height, so a narrow column still shrinks a picture in proportion.
 const purify = globalThis.DOMPurify;
 // A link's target resolves against the app's page, so only absolute web, mail and phone links keep
 // theirs: a relative one would open an extension page. An in-message anchor scrolls the message
@@ -947,6 +949,7 @@ purify.addHook("afterSanitizeAttributes", node => {
   if (node.tagName === "IMG" && !node.style.aspectRatio) {
     const w = Number(node.getAttribute("width")), h = Number(node.getAttribute("height"));
     if (w > 0 && h > 0) node.style.aspectRatio = `${w} / ${h}`;
+    else if (h > 0 && !node.style.maxHeight) node.style.maxHeight = `${h}px`;
   }
 });
 function cleanHtml(html) {

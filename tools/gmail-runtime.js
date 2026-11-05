@@ -37,11 +37,12 @@ const { FX } = require("./gmail-mock.js");
     unread: await page.locator("#folder-list .folder.unread .nm").allTextContents(), rows: await page.locator("#rows .row").count(),
     clips: await page.locator("#rows .row .fl").evaluateAll(els => els.map(e => e.innerHTML ? 1 : 0).join("")), unreadRows: await page.locator("#rows .row.unread").count() };
 
-  // reading: the HTML body with its cid image inlined, hostile markup removed, the spacer kept flat
+  // reading: the HTML body with its cid image inlined, hostile markup removed, both spacers kept flat
   await page.locator("#rows .row").nth(2).click(); await page.waitForTimeout(800);
   results.read = { subject: await page.locator("#r-subject").textContent(), from: await page.locator("#r-from").textContent(), folder: await page.locator("#r-folder").textContent(), body: (await frameText()).slice(0, 20),
     imgs: await page.frameLocator("#r-body").locator("img").evaluateAll(els => els.map(e => (e.getAttribute("src") || "").slice(0, 22))),
     spacer: await page.frameLocator("#r-body").locator("#spacer").evaluate(e => e.getBoundingClientRect().height),
+    spacer2: await page.frameLocator("#r-body").locator("#spacer2").evaluate(e => e.getBoundingClientRect().height),
     csp: await page.frameLocator("#r-body").locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content") };
   // attachments: seven cards, the image with a thumbnail, no converter for the deck
   results.attach = { cards: await page.locator("#r-attach .att-card").count(), labels: await page.locator("#r-attach .att-thumb").allTextContents() };
@@ -301,7 +302,7 @@ const { FX } = require("./gmail-mock.js");
   const t = results.tree;
   expect(t.names.join(",") === "Inbox,Starred,Drafts,Sent,All Mail,Spam,Trash,Projects,Travel" && t.unread.join() === "Inbox,Projects" && t.counts.join() === "4,2,1,8,32,2,1,3," && t.rows === 8 && t.clips === "00100100" && t.unreadRows === 4, "folder tree from labels: " + JSON.stringify(t));
   const r = results.read;
-  expect(r.subject === "Subject m-3" && r.from.includes("s3@x.com") && r.folder === "Inbox" && r.body.startsWith("Body of") && r.imgs[0]?.startsWith("data:image/png") && r.imgs[1]?.startsWith("data:image/png") && r.spacer <= 2 && /img-src https: data:/.test(r.csp), "reading with the cid image inlined: " + JSON.stringify(r));
+  expect(r.subject === "Subject m-3" && r.from.includes("s3@x.com") && r.folder === "Inbox" && r.body.startsWith("Body of") && r.imgs[0]?.startsWith("data:image/png") && r.imgs[1]?.startsWith("data:image/png") && r.spacer <= 2 && r.spacer2 <= 6 && /img-src https: data:/.test(r.csp), "reading with the cid image inlined: " + JSON.stringify(r));
   expect(results.attach.cards === 7 && results.attach.labels.join(",") === "PDF,CSV,ZIP,,DOC,XLS,PPT" && results.attach.thumbs.length === 1 && results.attach.thumbs[0].startsWith("data:image/png"), "attachment strip: " + JSON.stringify(results.attach));
   const v = results.viewer;
   expect(v.pdfPages === 2 && v.sandboxFetch === "blocked" && v.download === "report.pdf:true" && v.csv === "Z80,2,6502,1" && v.zip.includes("src/main.c") && v.img === 1 && v.doc && v.sheet === "Item,Cost,Z80,2.5,6502,1.25", "viewer through attachments.get: " + JSON.stringify(v));

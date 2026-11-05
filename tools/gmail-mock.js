@@ -35,7 +35,8 @@ const UNSAFE = `<script>parent.pwned = 1</script><img id="h-img" src="data:," on
 const FORGE = `<style>.hdr, .hdr * { display: none !important }</style><div id="forge" style="position:fixed;top:0;left:0;width:100%;height:160px;background:#fff;z-index:9">Fake header</div>`;
 const OVERLAY = `<div id="overlay" style="position:fixed;inset:0;z-index:2147483647;background:#f00">Session expired</div><img src="data:text/html;base64,PGgxPmhpPC9oMT4="><img src="data:image/png;base64,@@not base64@@">`;
 const CARD = `<div id="paper" style="background-color:#ffffff;color:#333333">Card</div>`;
-const SPACER = `<img id="spacer" style="min-width:640px;min-height:1px" width="640" height="1" src="data:image/png;base64,${PNG.toString("base64")}">`;
+const SPACER = `<img id="spacer" style="min-width:640px;min-height:1px" width="640" height="1" src="data:image/png;base64,${PNG.toString("base64")}">` +
+  `<img id="spacer2" style="width:100%;min-height:5px" height="5" src="data:image/png;base64,${PNG.toString("base64")}">`;
 
 function createGmail(opts = {}) {
   const state = {
