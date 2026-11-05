@@ -144,8 +144,15 @@ const { FX } = require("./gmail-mock.js");
   await page.keyboard.press("z"); await page.waitForTimeout(800);
   await page.keyboard.press("#"); await page.waitForTimeout(600);
   results.actions.trash = { call: mods().at(-1), rows: await page.locator("#rows .row").count() };
-  // in Trash, delete is for good, after asking
+  // the reader's Undelete moves a message from Trash to Inbox
   await folder("Trash");
+  await page.locator("#rows .row").first().click(); await page.waitForTimeout(500);
+  const undel = { label: await page.locator("#r-delete").textContent(), rows: await page.locator("#rows .row").count() };
+  await page.locator("#r-delete").click(); await page.waitForTimeout(600);
+  results.actions.undelete = { ...undel, call: mods().at(-1), rowsAfter: await page.locator("#rows .row").count(), undo: await page.locator("#st-undo").textContent() };
+  await page.locator("#list").focus(); await page.keyboard.press("z");
+  await page.waitForFunction(n => document.querySelectorAll("#rows .row").length === n, undel.rows, { timeout: 5000 }).catch(() => {});
+  // in Trash, delete is for good, after asking
   await page.locator("#rows .row").first().click(); await page.waitForTimeout(500);
   page.once("dialog", d => d.accept());
   const trashRows = await page.locator("#rows .row").count();
@@ -160,8 +167,8 @@ const { FX } = require("./gmail-mock.js");
   results.folderOps = { emptied: await page.locator("#rows .list-empty").count() === 1 && ![...gmail.messages.values()].some(m => m.labelIds.includes("TRASH")), trashCount: await page.locator("#folder-list .folder", { hasText: "Trash" }).locator(".ct").textContent() };
   await page.locator("#folder-list .folder", { hasText: "Projects" }).first().click({ button: "right" });
   await menu("mark-read");
-  await page.waitForFunction(() => !document.querySelector("#folder-list .folder.unread .nm")?.textContent.includes("Projects") || true, null, { timeout: 4000 });
-  await page.waitForTimeout(500);
+  // the status is read once it shows: a refresh of the Trash list could replace it
+  await page.waitForFunction(() => /^marked Projects read/.test(document.getElementById("st-msg").textContent), null, { timeout: 4000 }).catch(() => {});
   results.folderOps.markRead = { status: await page.locator("#st-msg").textContent(), unreadLeft: [...gmail.messages.values()].filter(m => m.labelIds.includes("Label_1") && m.labelIds.includes("UNREAD")).length };
   // create, rename (cascading to the subfolder), move and delete folders
   await page.locator("#folder-list .folders-head").click({ button: "right" });
@@ -320,6 +327,7 @@ const { FX } = require("./gmail-mock.js");
   expect(a.spam.call?.addLabelIds?.join() === "SPAM" && a.spam.call.removeLabelIds.join() === "INBOX" && /as spam/.test(a.spam.undo) && a.trash.call?.addLabelIds?.join() === "TRASH" && a.trash.rows === 7, "spam and trash are label moves: " + JSON.stringify([a.spam, a.trash]));
   expect(a.forever.deleted && a.forever.rows === 1, "delete from Trash is for good: " + JSON.stringify(a.forever));
   const fo = results.folderOps;
+  expect(a.undelete.label === "Undelete" && a.undelete.call?.addLabelIds?.join() === "INBOX" && a.undelete.call.removeLabelIds.join() === "TRASH" && a.undelete.rowsAfter === a.undelete.rows - 1 && /^Undo: restore 1 message to Inbox/.test(a.undelete.undo), "undelete from the reader: " + JSON.stringify(a.undelete));
   expect(fo.emptied && fo.trashCount === "" && /^marked Projects read/.test(fo.markRead.status) && fo.markRead.unreadLeft === 0, "empty Trash and mark all read: " + JSON.stringify([fo.emptied, fo.trashCount, fo.markRead]));
   expect(fo.renamed.labels.includes("Work") && fo.renamed.labels.includes("Work/FPGA") && !fo.renamed.labels.includes("Projects") && fo.renamed.names.includes("Work") && fo.renamed.names.includes("FPGA") && fo.renamed.names.includes("Zeta") && fo.deleted, "folders created, renamed with the subfolder, deleted: " + JSON.stringify(fo.renamed) + " " + fo.deleted);
   expect(results.card.head.includes("s2@x.com") && results.card.recent >= 1 && /\(from:s2@x\.com OR to:s2@x\.com OR cc:s2@x\.com\)/.test(results.card.q || ""), "contact card through a person search: " + JSON.stringify(results.card));

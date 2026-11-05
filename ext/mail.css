@@ -187,6 +187,7 @@ body.dragging iframe { pointer-events: none; }
 #compose-btn { font-size: calc(12 * var(--fu)); }
 .r-actions { margin-left: 12px; display: inline-flex; gap: 4px; }
 .r-actions button { font-size: calc(11 * var(--fu)); padding: 0 6px; }
+.r-actions .sep { width: 1px; align-self: stretch; margin: 0 4px; background: var(--line); }
 #compose { grid-area: reader; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 #compose.drop { outline: 2px dashed var(--sel-line); outline-offset: -4px; }
 #c-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg2); border-bottom: 1px solid var(--line); font-weight: 600; }

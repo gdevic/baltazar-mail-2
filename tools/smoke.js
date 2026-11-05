@@ -289,6 +289,26 @@ const folders = [
   await page.locator("#list").focus(); await page.keyboard.press("z"); await rowsBack();
   // the icon sits right beside the date
   trash.gap = await page.locator("#rows .row").nth(1).evaluate(r => { const t = r.querySelector(".tr svg").getBoundingClientRect(), d = r.querySelector(".dt"); const range = document.createRange(); range.selectNodeContents(d.lastChild); return Math.round(range.getBoundingClientRect().left - t.right); });
+  // The reader's own Delete, after a separator, acts on the open message alone and the reader
+  // moves on; in Trash it reads Undelete and moves the message to Inbox.
+  const rdel = {};
+  await page.locator("#list").focus(); await page.keyboard.press("Escape"); await page.keyboard.press("Home");
+  await page.locator("#rows .row").nth(1).click(); await page.waitForTimeout(400);
+  rdel.actions = await page.locator("#reader-head .r-actions").evaluate(s => [...s.children].filter(e => e.id !== "r-dark").map(e => e.classList.contains("sep") ? "|" : e.textContent).join(" "));
+  rdel.before = await page.locator("#rows .row").count();
+  await page.locator("#r-delete").click();
+  await rowsBelow(rdel.before);
+  rdel.deleted = { rows: await page.locator("#rows .row").count(), undo: await undoNow() };
+  await page.locator("#list").focus(); await page.keyboard.press("z"); await rowsBack();
+  await page.keyboard.press("g"); await page.keyboard.press("t");
+  await page.waitForFunction(() => document.getElementById("list-title").textContent === "Trash" && document.querySelectorAll("#rows .row").length === 8);
+  await page.locator("#rows .row").nth(0).click();
+  await page.waitForFunction(() => document.getElementById("r-delete").textContent === "Undelete", null, { timeout: 4000 }).catch(() => {});
+  rdel.inTrash = { label: await page.locator("#r-delete").textContent(), rows: await page.locator("#rows .row").count() };
+  await page.locator("#r-delete").click();
+  await rowsBelow(rdel.inTrash.rows);
+  rdel.restored = { rows: await page.locator("#rows .row").count(), undo: await undoNow() };
+  await page.locator("#list").focus(); await page.keyboard.press("g"); await page.keyboard.press("i"); await rowsBack();
   // The toolbar's order, with Delete between separators; the menu's Reply and Find all from
   // (the mock's body is always message 1, the top row)
   const menuActs = {};
@@ -383,6 +403,8 @@ const folders = [
   expectEnd(trash.hover === "100010" && trash.marked === "011000" && trash.two.rows === trash.before - 2 && /Undo: delete 2/.test(trash.two.undo) &&
     trash.one.rows === trash.before - 1 && trash.one.gone && trash.one.selBefore.marked.split(",").length === 2 &&
     trash.one.selAfter.marked === trash.one.selBefore.marked && trash.one.selAfter.cursor === trash.one.selBefore.cursor && trash.gap >= 10 && trash.gap <= 16 && trash.near.rows === trash.before - 1, "the row trash icon shows on hover and selection and deletes: " + JSON.stringify(trash));
+  expectEnd(rdel.actions === "Reply Reply all Forward Print | Delete" && rdel.deleted.rows === rdel.before - 1 && /^Undo: delete 1 message/.test(rdel.deleted.undo) && 
+    rdel.inTrash.label === "Undelete" && rdel.inTrash.rows === 8 && rdel.restored.rows === 7 && /^Undo: restore 1 message to Inbox/.test(rdel.restored.undo), "the reader's Delete and Undelete: " + JSON.stringify(rdel));
   expectEnd(menuActs.toolbar === "Archive Move... Spam | Delete | Mark read Star _ Undo Redo" || menuActs.toolbar === "Archive Move... Spam | Delete | Mark unread Star _ Undo Redo",
     "toolbar order: " + menuActs.toolbar);
   expectEnd(menuActs.reply.title === "Reply" && menuActs.replyAll === "Reply all" && menuActs.reply.to.includes(menuActs.rowFrom) && menuActs.find.term === `from:${menuActs.rowFrom}`,
