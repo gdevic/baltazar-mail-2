@@ -216,7 +216,9 @@ async function call(method, path, opts = {}, tries = { auth: true, again: 3 }) {
   }
   if (resp.status === 403 && reason === "ACCESS_TOKEN_SCOPE_INSUFFICIENT") { await forget(); throw new NotSignedIn("the sign-in lacks the needed permission; sign in again"); }
   if (!resp.ok) throw new ApiError(`${what}: HTTP ${resp.status} ${String(doc?.error?.message || text).slice(0, 160)}`, { status: resp.status, error: doc?.error || text.slice(0, 300) });
-  return doc;
+  // Gmail leaves empty fields out, so an answer with nothing to say (a list with no entries under
+  // a fields mask, a 204) has no body at all: an empty object, read like any other answer.
+  return doc ?? {};
 }
 
 // Several calls in one HTTP round trip (multipart/mixed). reqs: [{ method, path, query, json }];
