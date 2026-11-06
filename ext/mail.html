@@ -135,10 +135,11 @@
 <div id="settings" class="hidden">
   <div id="settings-box">
    <div id="settings-main">
-    <div id="app-version"></div>
+    <div id="app-head"><span id="app-version"></span><a id="app-repo" target="_blank" rel="noopener" title="This project on GitHub: source, releases, issues">GitHub</a></div>
     <b>Layout</b>
     <label><input type="radio" name="layout" value="vertical"> Three columns: folders | messages | preview</label>
     <label><input type="radio" name="layout" value="horizontal"> Folders left, messages above preview</label>
+    <div class="set-row"><span>Pane sizes follow the dividers you drag.</span><button id="settings-reset">Reset pane sizes</button></div>
     <b>Theme</b>
     <div class="theme-row"><label><input type="radio" name="theme" value="dark"> Dark</label><select id="darkTheme" title="Palette used in dark mode" aria-label="Dark palette"></select></div>
     <div class="theme-row"><label><input type="radio" name="theme" value="light"> Light</label><select id="lightTheme" title="Palette used in light mode" aria-label="Light palette"></select></div>
@@ -159,9 +160,9 @@
     <label><input type="number" id="markread" min="0" max="60" step="1" style="width:60px"> seconds after opening before a message is marked read (blank: never)</label>
     <label><input type="number" id="undosend" min="0" max="60" step="1" style="width:60px"> seconds to hold a message before sending, so it can be undone (0: send at once)</label>
     <b>Address book</b>
-    <div class="ab-row"><span id="ab-summary">Learned from your Inbox and Sent headers.</span><button id="ab-open">Manage...</button></div>
+    <div class="set-row"><span id="ab-summary">Learned from your Inbox and Sent headers.</span><button id="ab-open">Manage...</button></div>
     <p id="update-note" class="hidden"></p>
-    <p><button id="settings-close">Close</button> <button id="settings-reset">Reset pane sizes</button> <button id="signout" class="hidden" title="Forget the sign-in; the sign-in page asks again">Sign out</button></p>
+    <p><button id="settings-close">Close</button> <button id="signout" class="hidden" title="Forget the sign-in; the sign-in page asks again">Sign out</button></p>
    </div>
    <div id="settings-ab" class="hidden">
     <div class="ab-head"><button id="ab-back" title="Back to Settings (Esc)">‹ Settings</button><b>Address book</b><span></span></div>

@@ -31,7 +31,9 @@ body.dragging iframe { pointer-events: none; }
 #gear { padding: 0 5px; position: relative; display: inline-flex; align-items: center; color: var(--accent); }
 #gear svg { width: 16px; height: 16px; }
 #gear.has-update::after { content: ""; position: absolute; top: 2px; right: 1px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-#app-version { font-weight: 600; margin-bottom: 2px; }
+#app-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; }
+#app-version { font-weight: 600; flex: 1; }
+#app-repo { font-size: 12px; }
 #update-note { margin: 10px 0 0; padding: 6px 8px; border-left: 3px solid var(--accent); }
 /* Modal overlays sit above every popover (search help, cards, menus, suggestions). */
 #settings { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
@@ -257,8 +259,9 @@ body.dragging iframe { pointer-events: none; }
 #settings-main.hidden, #settings-ab.hidden { display: none; }
 #settings-ab { animation: ab-in .14s ease-out; }
 @keyframes ab-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
-.ab-row { display: flex; align-items: center; gap: 10px; }
-.ab-row span { flex: 1; color: var(--fg2); }
+/* A sentence with its button at the right, in Settings */
+.set-row { display: flex; align-items: center; gap: 10px; }
+.set-row span { flex: 1; color: var(--fg2); }
 .ab-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 4px; }
 .ab-head b { margin: 0 !important; }
 #ab-back { justify-self: start; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 2px 0; font: inherit; }
