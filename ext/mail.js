@@ -1295,8 +1295,11 @@ function scheduleSend(job) {
     showUndo();
     status(`sending...`);
     try {
-      const r = await job.run(); status(`sent: ${job.label.replace(/^send /, "")}`, r.ms);
+      const r = await job.run();
+      // The confirmation comes after the follow-up (the folders and the list the send changed),
+      // whose own status would otherwise cover it at once.
       await loadFolders(true).catch(() => {}); await actOnChanges().catch(() => {});
+      status(`sent: ${job.label.replace(/^send /, "")}`, r.ms);
     }
     catch (e) { handleError(e, "send"); await job.restore(); hideReaderForCompose(compose.isOpen()); }
   };
@@ -2258,7 +2261,9 @@ async function syncContacts(full = false) {
     const first = !(await contacts.isBuilt());
     const n = await contacts.sync({ inbox: inboxId(), sent: folderByType("SENT")?.id, full,
       progress: first ? (fid, seen) => status(`building address book: ${seen} messages in ${folderName(state.byId.get(fid))}...`) : null });
-    if (first || n) status(`address book: ${await contacts.count()} addresses${n ? ` (+${n} messages scanned)` : ""}`);
+    // The routine learn after a poll says nothing: a status would cover one the user is reading,
+    // such as the confirmation of a send.
+    if (first) status(`address book: ${await contacts.count()} addresses${n ? ` (${n} messages scanned)` : ""}`);
   } catch (e) { status(`address book: ${e.message}`); }
   finally { contactsBusy = false; }
 }
