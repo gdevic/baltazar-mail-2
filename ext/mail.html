@@ -13,7 +13,7 @@
     <span id="search-box"><button id="search-scope" class="hidden" tabindex="-1"></button><input id="search" type="search" placeholder="Search" autocomplete="off" spellcheck="false"><button id="search-help-btn" tabindex="-1" title="How to search">?</button></span>
     <button id="compose-btn" title="New message (c)">New message</button>
     <span id="account"></span>
-    <button id="gear" title="Settings">⚙</button>
+    <button id="gear" title="Settings"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-dasharray="2.1 2.3"/><circle cx="8" cy="8" r="4.3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg></button>
   </header>
   <div id="search-help" class="hidden" role="dialog" aria-label="How to search">
     <div class="sh-title">How to search <span>click an example to try it</span></div>
@@ -214,6 +214,10 @@
       <tr><td>c</td><td>new message</td></tr>
       <tr><td>r / a / f</td><td>reply / reply all / forward the open message</td></tr>
       <tr><td>Ctrl+Enter</td><td>send (held for the undo-send delay; z cancels)</td></tr>
+      <tr><td>Ctrl+S</td><td>save the message being written as a draft (it is also saved by itself)</td></tr>
+      <tr><td>Esc</td><td>close the composer (its draft is kept), the viewer, a dialog, menu or card; clear the search, then the selection</td></tr>
+      <tr><td>Enter, Tab, comma</td><td>in To / Cc / Bcc: complete the address (↓ / ↑ pick a suggestion; Backspace in an empty field removes the last one)</td></tr>
+      <tr><td>Del, Backspace</td><td>in the message being written: remove the selected inline picture</td></tr>
       <tr><td>/</td><td>search (Esc clears)</td></tr>
       <tr><td>g i / g s / g t / g d / g b / g a</td><td>Inbox / Sent / Trash / Drafts / Spam / Archive</td></tr>
       <tr><td>g *</td><td>Starred (all folders)</td></tr>
@@ -234,6 +238,7 @@
       <tr><td>n</td><td>load next 100 messages</td></tr>
       <tr><td>i</td><td>load remote images in open message</td></tr>
       <tr><td>+ / -, 0</td><td>zoom the message pane in / out, back to normal; also Ctrl+wheel over it. In the composer: Ctrl+= / Ctrl+- / Ctrl+0</td></tr>
+      <tr><td>← / →</td><td>in the attachment viewer: previous / next attachment (+ / - / 0 zoom it, Esc closes it)</td></tr>
       <tr><td>p</td><td>print the open message, or all selected messages as one document</td></tr>
       <tr><td>t</td><td>toggle light / dark</td></tr>
       <tr><td>,</td><td>settings</td></tr>

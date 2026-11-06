@@ -28,7 +28,8 @@ a { color: var(--link); }
 .split:hover, .split.drag { background: var(--sel-line); }
 body.dragging { user-select: none; cursor: inherit; }
 body.dragging iframe { pointer-events: none; }
-#gear { padding: 0 6px; position: relative; }
+#gear { padding: 0 5px; position: relative; display: inline-flex; align-items: center; color: var(--accent); }
+#gear svg { width: 16px; height: 16px; }
 #gear.has-update::after { content: ""; position: absolute; top: 2px; right: 1px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 #app-version { font-weight: 600; margin-bottom: 2px; }
 #update-note { margin: 10px 0 0; padding: 6px 8px; border-left: 3px solid var(--accent); }
