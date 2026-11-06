@@ -1,14 +1,14 @@
 # Privacy
 
-Baltazar Mail (for Yahoo Mail) and Baltazar Mail for Gmail are browser extensions that show your mail. They have no server, no account of their own, no analytics and no telemetry. Their author receives nothing about you or your mail. The two extensions share their code and differ only in the mail service they talk to; this page covers both, and says where they differ.
+Baltazar Mail for Yahoo and Baltazar Mail for Gmail are browser extensions that show your mail. They have no server, no account of their own, no analytics and no telemetry. Their author receives nothing about you or your mail. The two extensions share their code and differ only in the mail service they talk to; this page covers both, and says where they differ.
 
 ## Where your data goes
 
-Each extension talks to its mail service and, when installed from a release ZIP, to GitHub for one thing:
+Each extension talks to its mail service and, when loaded with Load unpacked (a release ZIP or a copy built from the source), to GitHub for one thing:
 
 | Host | Used for |
 |---|---|
-| `api.github.com` (both) | only for a copy installed from a release ZIP (Load unpacked), which cannot update itself: once a day, a request for the latest release number of this project, so Settings can say when an update is available. It carries no cookies, no account or mail data and no identifier; GitHub sees only what any web request shows (IP address and browser). The answer is used only for the version comparison; nothing is downloaded or installed. An install from a browser store is updated by the browser and never contacts GitHub |
+| `api.github.com` (both) | only for a copy loaded with Load unpacked (a release ZIP or a copy built from the source), which cannot update itself: once a day, a request for the latest release number of this project, so Settings can say when an update is available. It carries no cookies, no account or mail data and no identifier; GitHub sees only what any web request shows (IP address and browser). The answer is used only for the version comparison; nothing is downloaded or installed. An install from a browser store is updated by the browser and never contacts GitHub |
 
 Baltazar Mail for Yahoo, using the Yahoo sign-in already in your browser:
 
@@ -36,7 +36,7 @@ The extension's Content Security Policy (in its `manifest.json`) makes the brows
 
 | Data | Where | Why |
 |---|---|---|
-| Settings: layout, theme, palettes and contrast, text and row size, pane sizes, expanded folders, writing font, size and HTML or plain text, when images load, whether dark mode shows messages in their original colours, and the new-mail check, mark-read and undo-send intervals | the extension's local storage | so your choices persist |
+| Settings: layout, theme, palettes and contrast, text and row size, the message zoom, pane sizes, expanded folders, writing font, size and HTML or plain text, when images load, whether dark mode shows messages in their original colours, and the new-mail check, mark-read and undo-send intervals | the extension's local storage | so your choices persist |
 | When you last looked at the mail tab | the extension's local storage | so a tab that opens in the background shows the new-mail dot for mail that arrived while the browser was closed |
 | The latest release number and when it was checked | the extension's local storage | to ask GitHub once a day, or an hour later after a failed check |
 | For each draft saved here, whether it was written in HTML or plain text (keyed by the draft's id, removed when it is sent or discarded, at most 200 kept) | the extension's local storage | to reopen the draft in the same format |
