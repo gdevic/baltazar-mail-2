@@ -634,7 +634,9 @@ async function setNewMail(on) {
 const TRASH_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v5M9.2 6.5v5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 // mode: "fresh" (new view), "refresh" (same view, keep cursor and marks by id, same depth), "more" (next page).
 // focusId: after a refresh, put the cursor on this message and open it (undo of a move).
-async function loadList(mode = "fresh", focusId = null) {
+// told: the status line reports the load. A refresh the app makes by itself says nothing, so it
+// cannot cover the confirmation of what the user just did; one the user asked for (R) does.
+async function loadList(mode = "fresh", focusId = null, { told = mode !== "refresh" } = {}) {
   const v = state.view;
   const token = ++state.listToken;
   const prevView = state.prevView;
@@ -652,7 +654,7 @@ async function loadList(mode = "fresh", focusId = null) {
   const shown = mode === "fresh" ? { messages: state.messages, selected: state.selected, anchor: state.anchor, marked: new Set(state.marked), more: state.more, elsewhere: state.elsewhere } : null;
   if (mode === "fresh") { state.messages = []; state.selected = -1; state.anchor = -1; state.marked.clear(); state.more = false; state.loading = true; renderList(); }
   else if (mode === "more" && !state.messages.length) return;
-  status(mode === "more" ? "loading more..." : "loading...");
+  if (told) status(mode === "more" ? "loading more..." : "loading...");
   let r, other = null;
   try {
     // Searches the provider can answer in one query page normally; compound ones it cannot (AND
@@ -730,7 +732,7 @@ async function loadList(mode = "fresh", focusId = null) {
     $("list-title").append(" ", link);
   }
   const scopedN = state.messages.filter(x => !x.elsewhere).length;
-  status(`${name}: ${scopedN} messages${v.scope && elseN ? `, ${elseStr} more in other folders` : ""}${r.truncated ? ` (a term matched over ${CAP} messages; only the newest ${CAP} were combined)` : ""}`, r.ms);
+  if (told) status(`${name}: ${scopedN} messages${v.scope && elseN ? `, ${elseStr} more in other folders` : ""}${r.truncated ? ` (a term matched over ${CAP} messages; only the newest ${CAP} were combined)` : ""}`, r.ms);
 }
 
 // Shown in place of the list when a view has no messages.
@@ -1946,7 +1948,7 @@ function onKey(e) {
     case "/": e.preventDefault(); $("search").focus(); $("search").select(); break;
     case "g": pendingG = true; setTimeout(() => pendingG = false, 1200); break;
     case "r": e.preventDefault(); startCompose("reply"); break;
-    case "R": loadList("refresh"); break;
+    case "R": loadList("refresh", null, { told: true }); break;
     case "n": if (state.more) loadList("more"); break;
     case "i": loadImages(); break;
     case "p": printMessages(); break;
