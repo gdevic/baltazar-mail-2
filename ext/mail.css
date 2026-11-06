@@ -173,7 +173,7 @@ body.dragging iframe { pointer-events: none; }
 #notice-copy { flex: none; }
 #notice-close { flex: none; border: 0; background: none; color: var(--fg2); font-size: calc(16 * var(--fu)); line-height: 1; padding: 0 4px; }
 #notice-close:hover { color: var(--fg); }
-#status { grid-area: status; display: flex; justify-content: space-between; padding: 0 10px; font-size: calc(11 * var(--fu)); color: var(--fg3); background: var(--bg2); border-top: 1px solid var(--line); font-family: var(--mono); }
+#status { grid-area: status; display: flex; justify-content: space-between; padding: 0 10px; font-size: calc(12 * var(--fu)); color: var(--fg2); background: var(--bg2); border-top: 1px solid var(--line); font-family: var(--mono); }
 
 #signin { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; }
 #signin-fail { max-width: 560px; text-align: center; }
@@ -192,17 +192,19 @@ body.dragging iframe { pointer-events: none; }
 .r-actions .sep { width: 1px; align-self: stretch; margin: 0 4px; background: var(--line); }
 #compose { grid-area: reader; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 #compose.drop { outline: 2px dashed var(--sel-line); outline-offset: -4px; }
-#c-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg2); border-bottom: 1px solid var(--line); font-weight: 600; }
-#c-head .sp, #c-foot .sp { flex: 1; }
+#c-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+#c-head .sp { flex: 1; }
+#c-title { margin-left: 6px; font-weight: 600; }
 #c-head select, #c-from { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 2px 6px; font: inherit; }
 .c-row { display: flex; align-items: center; gap: 8px; padding: 3px 12px; border-bottom: 1px solid var(--line); }
-.c-row label { width: 52px; color: var(--fg3); font-size: calc(12 * var(--fu)); flex: none; }
+.c-row label { width: calc(52 * var(--fu)); color: var(--fg3); font-size: calc(12 * var(--fu)); flex: none; }
 .c-row input, .c-row select { flex: 1; background: transparent; color: var(--fg); border: 0; padding: 3px 0; font: inherit; }
 .c-row input:focus { outline: none; }
 .c-row button { font-size: calc(11 * var(--fu)); padding: 0 6px; }
 #c-toolbar { display: flex; gap: 3px; padding: 4px 12px; border-bottom: 1px solid var(--line); background: var(--bg2); }
 #c-toolbar { flex-wrap: wrap; align-items: center; }
 #c-toolbar button { font-size: calc(12 * var(--fu)); padding: 0 6px; min-width: 26px; height: 22px; }
+#c-toolbar button svg { width: 14px; height: 14px; vertical-align: -3px; }
 #c-toolbar button.on { background: var(--sel); border-color: var(--sel-line); }
 #c-toolbar select { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; font: inherit; font-size: calc(12 * var(--fu)); height: 22px; }
 #c-font { width: 110px; } #c-size { width: 58px; }
@@ -224,13 +226,14 @@ body.dragging iframe { pointer-events: none; }
 /* Nothing in the edited message, however styled, can paint outside the editor */
 #c-editor { contain: paint; }
 #c-editor blockquote { border-left: 2px solid #bbb; margin: 4px 0; padding-left: 10px; color: #444; }
-#c-filelist { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; background: var(--bg2); }
-#c-filelist:not(:empty) { padding: 6px 12px; border-top: 1px solid var(--line); }
+#c-filelist { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 22px; }
 .c-file { background: var(--bg3); border: 1px solid var(--line); border-radius: 3px; padding: 1px 8px; font-size: calc(12 * var(--fu)); }
 .c-file i { color: var(--fg3); font-style: normal; margin-left: 4px; }
 .c-file a { color: var(--fg2); text-decoration: none; margin-left: 4px; }
-#c-foot { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--bg2); }
-#c-send { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; padding: 2px 14px; }
+#c-send { padding: 2px 14px; }
+/* The two accent buttons are outlined like every other button, so hover and focus show on them too. */
+#c-send, #compose-btn { background: var(--accent); color: var(--on-accent); border-color: var(--fg3); font-weight: 600; }
+#c-send:hover, #compose-btn:hover, #c-send:focus-visible, #compose-btn:focus-visible { border-color: var(--fg); filter: brightness(1.15); }
 #st-undo.pending { color: var(--accent); }
 
 .addr { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; cursor: text; }

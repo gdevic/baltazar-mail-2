@@ -430,7 +430,7 @@ const { launch } = require("./harness");
   results.fontAfter = [await page.locator("#c-font").evaluate(s => s.selectedOptions[0]?.textContent), await page.inputValue("#c-size")];
   await page.locator('[data-pal="fore"]').click(); await page.waitForSelector("#c-palette:not(.hidden)");
   results.palette = await page.locator("#c-palette .sw").count();
-  await page.screenshot({ path: path.join(__dirname, "..", "out", "palette.png"), clip: { x: 700, y: 150, width: 580, height: 260 } }).catch(() => {});
+  await page.screenshot({ path: path.join(__dirname, "..", "out", "palette.png"), clip: { x: 700, y: 150, width: 580, height: 300 } }).catch(() => {});
   await page.locator("#c-palette .sw").nth(3).click();
   results.editorImgs = await page.locator("#c-editor img").count();
   results.fileChip = await page.locator("#c-filelist").textContent();

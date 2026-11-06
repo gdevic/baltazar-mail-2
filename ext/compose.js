@@ -120,9 +120,9 @@ export function init(h) {
   $("c-files").onchange = () => { addFiles([...$("c-files").files]); $("c-files").value = ""; };
   $("c-mode").onchange = () => switchMode($("c-mode").value);
   $("c-cc-toggle").onclick = () => { $("c-cc-row").classList.toggle("hidden"); $("c-bcc-row").classList.toggle("hidden"); };
-  // The formatting tools are for the mouse (and Ctrl+B, Ctrl+I, Ctrl+U): Tab goes from the
-  // subject straight into the message.
-  for (const el of $("c-toolbar").querySelectorAll("button, select, input")) el.tabIndex = -1;
+  // The header's buttons (Send has Ctrl+Enter, Save draft Ctrl+S) and the formatting tools (Ctrl+B,
+  // Ctrl+I, Ctrl+U) are for the mouse: Tab goes from the subject straight into the message.
+  for (const el of $("compose").querySelectorAll("#c-head button, #c-head select, #c-toolbar button, #c-toolbar select, #c-toolbar input")) el.tabIndex = -1;
   for (const b of $("c-toolbar").querySelectorAll("button[data-cmd]")) { b.onmousedown = e => e.preventDefault(); b.onclick = e => { e.preventDefault(); format(b.dataset.cmd); }; }
   // Picked with the mouse, the caret goes back to the text; stepped through with the keys, the box
   // keeps focus so the next key steps again.
@@ -770,8 +770,10 @@ function addFiles(files) {
 function renderFiles() {
   const el = $("c-filelist");
   const kb = n => `${Math.max(1, Math.round(n / 1024))} KB`;
-  el.innerHTML = (draft.refs || []).map((r, i) => `<span class="c-file" title="Forwarded from the original message">↪ ${esc(r.filename)} <i>${kb(r.size)}</i> <a href="#" data-ref="${i}" title="Remove">×</a></span>`).join("") +
-    draft.files.map((f, i) => `<span class="c-file">${esc(f.name)} <i>${kb(f.size)}</i> <a href="#" data-i="${i}" title="Remove">×</a></span>`).join("");
+  el.innerHTML = (draft.refs || []).map((r, i) => `<span class="c-file" title="Forwarded from the original message">↪ ${esc(r.filename)} <i>${kb(r.size)}</i> <a href="#" data-ref="${i}" title="Remove" tabindex="-1">×</a></span>`).join("") +
+    draft.files.map((f, i) => `<span class="c-file">${esc(f.name)} <i>${kb(f.size)}</i> <a href="#" data-i="${i}" title="Remove" tabindex="-1">×</a></span>`).join("");
+  // The row sits under Subject and shows only while something is attached.
+  $("c-attached-row").classList.toggle("hidden", !(draft.refs || []).length && !draft.files.length);
   el.onclick = e => {
     const a = e.target.closest("a[data-i], a[data-ref]"); if (!a) return;
     e.preventDefault();
