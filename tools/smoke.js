@@ -309,6 +309,38 @@ const folders = [
   await rowsBelow(rdel.inTrash.rows);
   rdel.restored = { rows: await page.locator("#rows .row").count(), undo: await undoNow() };
   await page.locator("#list").focus(); await page.keyboard.press("g"); await page.keyboard.press("i"); await rowsBack();
+  // The message zoom: + / - / 0 scale the open message in place while the interface stays as it
+  // is, a badge over the pane shows the level and fades, the next message opens at the same zoom,
+  // and so does the composer, where Ctrl+= / Ctrl+- / Ctrl+0 change it and the size control still
+  // shows the real font size.
+  const zoom = {};
+  await page.locator("#rows .row").nth(1).click(); await page.waitForTimeout(400);
+  const frameZoom = () => page.locator("#r-body").evaluate(f => getComputedStyle(f.contentDocument.documentElement).zoom);
+  const badge = () => page.locator("#zoom-badge").evaluate(b => b.classList.contains("show") ? b.textContent : "");
+  const uiSize = () => page.evaluate(() => [getComputedStyle(document.documentElement).getPropertyValue("--fs"), document.getElementById("list").getBoundingClientRect().width].join());
+  zoom.ui = await uiSize();
+  await page.locator("#list").focus(); await page.keyboard.press("+"); await page.keyboard.press("+");
+  zoom.up = { badge: await badge(), frame: await frameZoom(), ui: await uiSize() };
+  zoom.over = await page.evaluate(() => { const b = document.getElementById("zoom-badge").getBoundingClientRect(), r = document.getElementById("r-body").getBoundingClientRect(); return b.left > r.left && b.right < r.right && b.top > r.top && b.bottom < r.bottom; });
+  await page.waitForTimeout(1400);
+  zoom.faded = await badge();
+  await page.keyboard.press("0");
+  zoom.reset = { badge: await badge(), frame: await frameZoom() };
+  await page.keyboard.press("-");
+  zoom.down = await frameZoom();
+  await page.locator("#rows .row").nth(2).click(); await page.waitForTimeout(400);
+  zoom.next = await frameZoom();
+  await page.locator("#rows .row").nth(0).click(); await page.waitForTimeout(400);   // the mock's body belongs to the top row
+  await page.locator("#list").focus(); await page.keyboard.press("r");
+  await page.waitForSelector("#compose:not(.hidden)", { timeout: 5000 }).catch(() => {});
+  await page.locator("#c-editor").click(); await page.waitForTimeout(200);
+  const editorZoom = () => page.locator("#c-editor").evaluate(e => getComputedStyle(e).zoom);
+  zoom.compose = { zoom: await editorZoom(), size: await page.locator("#c-size").inputValue() };
+  await page.keyboard.press("Control+="); await page.keyboard.press("Control+=");
+  zoom.composeUp = { badge: await badge(), zoom: await editorZoom(), size: await page.locator("#c-size").inputValue() };
+  await page.keyboard.press("Control+0");
+  zoom.composeReset = await editorZoom();
+  await page.locator("#c-discard").click().catch(() => {}); await page.waitForTimeout(500);
   // The toolbar's order, with Delete between separators; the menu's Reply and Find all from
   // (the mock's body is always message 1, the top row)
   const menuActs = {};
@@ -403,6 +435,10 @@ const folders = [
   expectEnd(trash.hover === "100010" && trash.marked === "011000" && trash.two.rows === trash.before - 2 && /Undo: delete 2/.test(trash.two.undo) &&
     trash.one.rows === trash.before - 1 && trash.one.gone && trash.one.selBefore.marked.split(",").length === 2 &&
     trash.one.selAfter.marked === trash.one.selBefore.marked && trash.one.selAfter.cursor === trash.one.selBefore.cursor && trash.gap >= 10 && trash.gap <= 16 && trash.near.rows === trash.before - 1, "the row trash icon shows on hover and selection and deletes: " + JSON.stringify(trash));
+  expectEnd(zoom.up.badge === "120%" && zoom.up.frame === "1.2" && zoom.up.ui === zoom.ui && zoom.over && zoom.faded === "" && zoom.reset.badge === "100%" && zoom.reset.frame === "1" &&
+    zoom.down === "0.9" && zoom.next === "0.9", "the message zoom scales the open message alone, with a badge over it: " + JSON.stringify(zoom));
+  expectEnd(zoom.compose.zoom === "0.9" && zoom.compose.size === "13" && zoom.composeUp.badge === "110%" && zoom.composeUp.zoom === "1.1" && zoom.composeUp.size === "13" && zoom.composeReset === "1",
+    "the composer opens at the message zoom and Ctrl+= / Ctrl+0 change it: " + JSON.stringify(zoom));
   expectEnd(rdel.actions === "Reply Reply all Forward Print | Delete" && rdel.deleted.rows === rdel.before - 1 && /^Undo: delete 1 message/.test(rdel.deleted.undo) && 
     rdel.inTrash.label === "Undelete" && rdel.inTrash.rows === 8 && rdel.restored.rows === 7 && /^Undo: restore 1 message to Inbox/.test(rdel.restored.undo), "the reader's Delete and Undelete: " + JSON.stringify(rdel));
   expectEnd(menuActs.toolbar === "Archive Move... Spam | Delete | Mark read Star _ Undo Redo" || menuActs.toolbar === "Archive Move... Spam | Delete | Mark unread Star _ Undo Redo",

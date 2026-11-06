@@ -16,7 +16,7 @@ const PAGE = 100;
 const DRAG_TYPE = "application/x-baltazar-mail-ids";
 
 // ---------- settings ----------
-const DEFAULTS = { layout: "vertical", theme: "light", darkTheme: "dark", lightTheme: "light", contrast: 0, pollSec: 20, markReadSec: 2, undoSendSec: 10, composeHtml: true, composeFont: compose.DEFAULT_FONT, composeSize: 13, images: "safe", readerOriginal: false, textPct: 100, rowPct: 100, folderW: 230, listW: 460, listH: 40, expanded: [] };
+const DEFAULTS = { layout: "vertical", theme: "light", darkTheme: "dark", lightTheme: "light", contrast: 0, pollSec: 20, markReadSec: 2, undoSendSec: 10, composeHtml: true, composeFont: compose.DEFAULT_FONT, composeSize: 13, images: "safe", readerOriginal: false, messageZoom: 100, textPct: 100, rowPct: 100, folderW: 230, listW: 460, listH: 40, expanded: [] };
 let settings = { ...DEFAULTS };
 
 async function loadSettings() {
@@ -1076,8 +1076,9 @@ function bodyDoc(html, images, look = "light") {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">` +
     `<style>body{margin:12px 16px;font:14px/1.45 -apple-system,"Segoe UI",system-ui,sans-serif;color:${dark ? DARK.fg : "#111"};word-wrap:break-word}` +
     (dark ? `html{background:${DARK.bg};color-scheme:dark}a{color:${DARK.link}}` : look === "dim" ? "html{background:#fff;filter:brightness(.9)}" : "") +
-    // the text size setting zooms the message as a whole, so mail that fixes its own sizes follows too
-    (settings.textPct !== 100 ? `html{zoom:${settings.textPct / 100}}` : "") +
+    // The text size setting and the message zoom scale the message as a whole, so mail that
+    // fixes its own sizes follows too.
+    (messageScale() !== 1 ? `html{zoom:${messageScale()}}` : "") +
     `img{max-width:100%;height:auto${images ? "" : ";display:none"}}pre{white-space:pre-wrap}blockquote{border-left:3px solid ${dark ? DARK.rule : "#ccc"};margin:6px 0;padding-left:10px;color:${dark ? DARK.quote : "#444"}}</style></head>` +
     `<body>${html}</body></html>`;
 }
@@ -1101,6 +1102,30 @@ function toggleReaderColours() {
   settings.readerOriginal = !settings.readerOriginal;
   saveSettings(); syncDarkButton();
   if (currentBody && state.openId) showBody();
+}
+
+// The message zoom, on top of the text size setting, is one choice for every message read or
+// written: steps of 10% between 50% and 300%, 0 back to normal. The open frame, or the editor, is
+// scaled in place, so the message keeps its scroll position; the next message gets it from bodyDoc
+// or from the composer as it opens. A badge over the pane shows the level for a moment.
+const messageScale = () => settings.textPct * settings.messageZoom / 10000;
+function zoomMessage(dir) {
+  const writing = compose.isOpen();
+  if (!writing && !(currentBody && state.openId)) return;
+  settings.messageZoom = dir === 0 ? 100 : Math.min(300, Math.max(50, settings.messageZoom + dir * 10));
+  saveSettings();
+  if (writing) compose.applyZoom();
+  else { const html = $("r-body").contentDocument?.documentElement; if (html) html.style.zoom = messageScale(); }
+  showZoomBadge(writing ? $("c-body") : $("r-body"));
+}
+let zoomBadgeTimer;
+function showZoomBadge(pane) {
+  const b = $("zoom-badge"), r = pane.getBoundingClientRect();
+  b.textContent = `${settings.messageZoom}%`;
+  b.style.left = `${r.left + r.width / 2}px`; b.style.top = `${r.top + r.height / 2}px`;
+  b.classList.add("show");
+  clearTimeout(zoomBadgeTimer);
+  zoomBadgeTimer = setTimeout(() => b.classList.remove("show"), 900);
 }
 
 // how: "user" (a click or Enter) or "auto" (the reader following the cursor or restoring a folder).
@@ -1165,6 +1190,8 @@ function setFrame(doc, bg = "#fff") {
       let id = a.getAttribute("href").slice(1); try { id = decodeURIComponent(id); } catch { /* as written */ }
       (id && (doc.getElementById(id) || doc.getElementsByName(id)[0]))?.scrollIntoView();
     });
+    // Ctrl+wheel over the message zooms the message, not the tab.
+    doc?.addEventListener("wheel", e => { if (e.ctrlKey) { e.preventDefault(); zoomMessage(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
   });
   f.srcdoc = doc;
   old.replaceWith(f);
@@ -1951,6 +1978,9 @@ function onKey(e) {
     case "R": loadList("refresh", null, { told: true }); break;
     case "n": if (state.more) loadList("more"); break;
     case "i": loadImages(); break;
+    case "+": case "=": zoomMessage(1); break;
+    case "-": zoomMessage(-1); break;
+    case "0": zoomMessage(0); break;
     case "p": printMessages(); break;
     case "t": toggleTheme(); break;
     case ",": openSettings(true); break;
@@ -2293,7 +2323,7 @@ $("r-dark").onclick = toggleReaderColours;
 $("compose-btn").onclick = () => startCompose("new");
 for (const b of document.querySelectorAll("[data-reply]")) b.onclick = () => startCompose(b.dataset.reply);
 compose.init({
-  status, notify, clearNotice, folderByType, settings: () => settings,
+  status, notify, clearNotice, folderByType, settings: () => settings, zoom: messageScale, zoomMessage,
   saveSetting: (k, v) => { settings[k] = v; saveSettings(); },
   onClose: () => { hideReaderForCompose(false); $("list").focus(); if (folderType(state.byId.get(state.view.folderId)) === "DRAFT") loadList("refresh"); },
   // a discarded draft's rows go at once; the refresh on close ran before the delete

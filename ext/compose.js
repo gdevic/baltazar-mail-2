@@ -170,11 +170,14 @@ export function init(h) {
   c.addEventListener("input", () => { dirty = true; });
   c.addEventListener("dragover", e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); c.classList.add("drop"); } });
   c.addEventListener("dragleave", () => c.classList.remove("drop"));
+  c.addEventListener("wheel", e => { if (e.ctrlKey && e.target.closest("#c-body")) { e.preventDefault(); hooks.zoomMessage(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
   c.addEventListener("drop", e => { c.classList.remove("drop"); if (e.dataTransfer.files.length) { e.preventDefault(); addFiles([...e.dataTransfer.files]); } });
   c.addEventListener("keydown", e => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
     else if (e.key === "Escape") { e.preventDefault(); close(); }
     else if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveNow(); }
+    // the browser's zoom keys zoom the message being written, not the tab
+    else if ((e.ctrlKey || e.metaKey) && ["=", "+", "-", "0"].includes(e.key)) { e.preventDefault(); hooks.zoomMessage(e.key === "0" ? 0 : e.key === "-" ? -1 : 1); }
     e.stopPropagation();
   });
 }
@@ -344,6 +347,13 @@ function applyDefaultFont() {
   const f = defaultFont();
   $("c-editor").style.font = `${f.size}px/1.45 ${f.family}`;
   $("c-text").style.font = `${f.size}px/1.45 ${/courier|consolas|menlo|mono/i.test(f.family) ? f.family : "var(--mono)"}`;
+  applyZoom();
+}
+// The message zoom scales the editor on screen only, text and the quoted message alike: what is
+// sent keeps the chosen font size.
+export function applyZoom() {
+  const z = hooks.zoom();
+  $("c-editor").style.zoom = z; $("c-text").style.zoom = z;
 }
 
 function setMode(html) {
